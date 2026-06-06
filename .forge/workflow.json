@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "projectName": "linker",
+  "projectType": "",
+  "qualityMode": "best",
+  "enabledModules": ["copilot-instructions", "branching-strategy", "code-quality", "testing-standards", "pr-workflow", "documentation", "multi-agent", "workflow-enforcer", "git-hooks", "pr-template", "copilot-agent-setup"],
+  "tutorSettings": {
+
+  },
+  "prReviewSettings": {
+    "strategy": "tutor-and-agent",
+    "autoTrigger": true,
+    "requireChangelog": true,
+    "agentStrictness": "standard",
+    "agentFocusAreas": ["naming", "complexity", "tests", "architecture", "security"]
+  },
+  "appliedAt": "2026-06-05"
+}
