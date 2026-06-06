@@ -32,5 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- Pre-push hook (`.forge/hooks/pre-push` and `.forge/hooks/pre-push.ps1`) no
+  longer false-fails on every push. The scaffold template hardcoded
+  `go build ./cmd/forge/` (Forge Terminal's own entrypoint), which does not
+  exist here. It now runs `go tool templ generate` first — so the gitignored
+  `*_templ.go` files exist — then builds every package with `go build ./...`,
+  making the check entrypoint-agnostic.
 
 ### Removed

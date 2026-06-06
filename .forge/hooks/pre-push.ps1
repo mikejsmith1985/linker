@@ -11,10 +11,21 @@ Write-Host "Running pre-push checks..." -ForegroundColor Cyan
 
 # ── Go Build + Test ─────────────────────────────────────────────────────
 if (Test-Path "go.mod") {
+    # Projects using a-h/templ generate Go source from .templ files that are
+    # gitignored (*_templ.go). A clean checkout has none, so the build fails
+    # unless we regenerate them first. Guarded on the templ tool directive so
+    # this step is a no-op in projects that don't use templ.
+    if (Select-String -Path go.mod -Pattern "tool github.com/a-h/templ" -Quiet) {
+        Write-Host "  [Go] Generating templ files..." -ForegroundColor Cyan
+        go tool templ generate *> $null
+    }
+
     Write-Host "  [Go] Building..." -ForegroundColor Cyan
-    $buildOutput = go build ./cmd/forge/ 2>&1
+    # Build every package rather than a single hardcoded entrypoint, so this
+    # hook stays correct regardless of the project's cmd/ layout.
+    $buildOutput = go build ./... 2>&1
     if ($LASTEXITCODE -ne 0) {
-        $failures += "GO BUILD: go build ./cmd/forge/ failed"
+        $failures += "GO BUILD: go build ./... failed"
         Write-Host "  [Go] Build FAILED" -ForegroundColor Red
         Write-Host $buildOutput -ForegroundColor Red
     } else {
