@@ -11,10 +11,21 @@ echo -e "\033[36mRunning pre-push checks...\033[0m"
 
 # ── Go Build + Test ─────────────────────────────────────────────────────
 if [[ -f "go.mod" ]]; then
+    # Projects using a-h/templ generate Go source from .templ files that are
+    # gitignored (*_templ.go). A clean checkout has none, so the build fails
+    # unless we regenerate them first. Guarded on the templ tool directive so
+    # this step is a no-op in projects that don't use templ.
+    if grep -q "tool github.com/a-h/templ" go.mod 2>/dev/null; then
+        echo -e "  \033[36m[Go] Generating templ files...\033[0m"
+        go tool templ generate > /dev/null 2>&1
+    fi
+
     echo -e "  \033[36m[Go] Building...\033[0m"
-    build_output=$(go build ./cmd/forge/ 2>&1)
+    # Build every package rather than a single hardcoded entrypoint, so this
+    # hook stays correct regardless of the project's cmd/ layout.
+    build_output=$(go build ./... 2>&1)
     if [[ $? -ne 0 ]]; then
-        failures+=("GO BUILD: go build ./cmd/forge/ failed")
+        failures+=("GO BUILD: go build ./... failed")
         echo -e "  \033[31m[Go] Build FAILED\033[0m"
         echo "$build_output"
     else
