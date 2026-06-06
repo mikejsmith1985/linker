@@ -1,0 +1,12 @@
+# Generated templ output (built via `make generate` / Docker)
+*_templ.go
+
+# Build artifacts
+/bin/
+/linker
+
+# Local environment / secrets
+.env
+
+# Go test/coverage
+*.out

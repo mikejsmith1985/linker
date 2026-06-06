@@ -1,0 +1,26 @@
+package web
+
+import "github.com/mikejsmith1985/linker/internal/store"
+
+templ History(items []store.PostWithEvent) {
+	@Layout("linker · history") {
+		<h1>Post history</h1>
+		<p class="hint">Everything you've queued or published, newest first — your cadence at a glance.</p>
+		if len(items) == 0 {
+			<p class="empty">Nothing queued yet.</p>
+		} else {
+			<ul class="history">
+				for _, p := range items {
+					<li>
+						<div class="meta">
+							<strong>{ p.Repo }</strong>
+							<span class="badge ok">{ string(p.Status) }</span>
+							<span class="when">{ queuedWhen(p) }</span>
+						</div>
+						<p class="excerpt">{ excerptText(p.Content) }</p>
+					</li>
+				}
+			</ul>
+		}
+	}
+}

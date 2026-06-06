@@ -1,0 +1,28 @@
+package web
+
+templ Layout(title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ title }</title>
+			<script src="https://unpkg.com/htmx.org@2.0.3"></script>
+			<style>
+				@templ.Raw(styleCSS)
+			</style>
+		</head>
+		<body>
+			<header class="topbar">
+				<div class="brand">linker</div>
+				<nav>
+					<a href="/">Drafts</a>
+					<a href="/history">History</a>
+				</nav>
+			</header>
+			<main>
+				{ children... }
+			</main>
+		</body>
+	</html>
+}
