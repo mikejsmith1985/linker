@@ -18,6 +18,7 @@ type fakeStore struct {
 	finishedWith  map[string]string
 	finishStatus  store.SearchStatus
 	openingSeq    int64
+	failUpsert    string // title whose UpsertOpening returns an error
 }
 
 func (f *fakeStore) RunMigrations(context.Context) error                     { return nil }
@@ -41,10 +42,19 @@ func (f *fakeStore) FinishSearch(_ context.Context, _ int64, status store.Search
 func (f *fakeStore) GetSearch(context.Context, int64) (store.Search, error) {
 	return store.Search{}, nil
 }
-func (f *fakeStore) UpsertOpening(context.Context, store.JobOpening) (int64, error) {
+func (f *fakeStore) UpsertOpening(_ context.Context, o store.JobOpening) (int64, error) {
+	if f.failUpsert != "" && o.Title == f.failUpsert {
+		return 0, errFakeUpsert
+	}
 	f.openingSeq++
 	return f.openingSeq, nil
 }
+
+var errFakeUpsert = errorString("upsert failed")
+
+type errorString string
+
+func (e errorString) Error() string { return string(e) }
 func (f *fakeStore) FindScoredOpening(context.Context, string) (store.MatchResult, error) {
 	return store.MatchResult{}, store.ErrNotFound
 }
@@ -126,6 +136,34 @@ func TestRunSearchRanksAndFlagsQualifying(t *testing.T) {
 	}
 	if st.finishedWith["broken"] != jobsource.HealthFailed {
 		t.Errorf("health not recorded: %v", st.finishedWith)
+	}
+}
+
+func TestRunSearchSkipsUnpersistableOpening(t *testing.T) {
+	st := &fakeStore{
+		resume:     store.Resume{ID: 1, StructuredProfile: "Skills: Go", RawText: "facts"},
+		prefs:      store.Preferences{WorkLocationPref: store.WorkRemote},
+		failUpsert: "Bad", // this opening errors on persist (e.g. bad bytes)
+	}
+	disc := fakeDiscoverer{
+		openings: []store.JobOpening{
+			{Title: "Bad", CanonicalKey: "k-bad"},
+			{Title: "Good", CanonicalKey: "k-good"},
+		},
+		health: map[string]string{"src": jobsource.HealthSucceeded},
+	}
+	scorer := fakeScorer{byTitle: map[string]int{"Good": 90}}
+
+	orch := New(st, disc, scorer, nil, nil, nil, nil)
+	if _, err := orch.RunSearch(context.Background()); err != nil {
+		t.Fatalf("RunSearch should not fail for one bad opening: %v", err)
+	}
+	// The good opening is still scored; the search completes, not fails.
+	if len(st.created) != 1 || st.created[0].Score != 90 {
+		t.Errorf("created = %+v, want just the Good opening scored 90", st.created)
+	}
+	if st.finishStatus != store.SearchCompleted {
+		t.Errorf("status = %q, want completed", st.finishStatus)
 	}
 }
 
