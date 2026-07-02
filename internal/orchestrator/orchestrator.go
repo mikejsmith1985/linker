@@ -211,9 +211,11 @@ func buildQuery(resume store.Resume, prefs store.Preferences) jobsource.Query {
 }
 
 // extractKeywords pulls skill keywords from the structured profile's "Skills:"
-// line, falling back to the first several words of the profile.
+// line, falling back to the first several words of the profile. A tight set
+// keeps the source query focused so results stay relevant rather than a broad
+// grab-bag.
 func extractKeywords(profile string) []string {
-	const maxKeywords = 8
+	const maxKeywords = 4
 	for _, line := range strings.Split(profile, "\n") {
 		if rest, ok := cutFold(strings.TrimSpace(line), "skills:"); ok {
 			return topN(splitAndTrim(rest, ","), maxKeywords)

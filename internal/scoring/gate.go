@@ -25,10 +25,72 @@ func ApplyGates(opening store.JobOpening, prefs store.Preferences) GateResult {
 
 	applySalaryGate(&result, opening, prefs)
 	applyWorkLocationGate(&result, opening, prefs)
+	applyLocationGate(&result, opening, prefs)
 	applyTravelPenalty(&result, opening, prefs)
 	applyRelocatePenalty(&result, opening, prefs)
 
 	return result
+}
+
+// applyLocationGate fires when the opening states a geographic eligibility that
+// excludes the user's location. It is "innocent until proven guilty": it only
+// gates when the posting names a recognized foreign-only region and offers no
+// US-inclusive or worldwide option, so plain city names never over-gate.
+func applyLocationGate(r *GateResult, opening store.JobOpening, prefs store.Preferences) {
+	if strings.TrimSpace(prefs.Location) == "" || strings.TrimSpace(opening.Location) == "" {
+		return
+	}
+	if !locationEligible(prefs.Location, opening.Location) {
+		r.Penalty += LocationGatePenalty
+		r.Fired[GateLocation] = LocationGatePenalty
+	}
+}
+
+// worldwideTokens indicate a posting open to candidates anywhere.
+var worldwideTokens = []string{"worldwide", "anywhere", "global", "fully remote", "any location", "remote - global"}
+
+// usTokens indicate a posting is open to US-based candidates.
+var usTokens = []string{"united states", "usa", "u.s.a", "u.s.", "us-based", "us based", "us only", "us remote", "us timezone", "north america", "northern america", "americas"}
+
+// foreignOnlyTokens are region names that, absent any US/worldwide token, imply a
+// posting is not open to US candidates.
+var foreignOnlyTokens = []string{
+	"brazil", "europe", "united kingdom", "uk", "germany", "france", "spain", "portugal",
+	"netherlands", "poland", "ukraine", "india", "latam", "latin america", "central america",
+	"south america", "apac", "emea", "africa", "asia", "oceania", "australia", "canada",
+	"israel", "mexico", "argentina", "philippines", "singapore", "japan",
+}
+
+// locationEligible reports whether a US-based user can take a posting given its
+// stated required location.
+func locationEligible(userLocation, jobLocation string) bool {
+	job := strings.ToLower(jobLocation)
+	if containsAny(job, worldwideTokens) {
+		return true
+	}
+	if userIsUSBased(userLocation) {
+		if containsAny(job, usTokens) {
+			return true
+		}
+		// A recognized foreign-only restriction with no US option → ineligible.
+		return !containsAny(job, foreignOnlyTokens)
+	}
+	// Non-US users: eligible if the posting mentions their location or is unrecognized.
+	return strings.Contains(job, strings.ToLower(strings.TrimSpace(userLocation))) || !containsAny(job, foreignOnlyTokens)
+}
+
+func userIsUSBased(userLocation string) bool {
+	u := strings.ToLower(userLocation)
+	return strings.Contains(u, "united states") || strings.Contains(u, "usa") || u == "us" || strings.Contains(u, "u.s")
+}
+
+func containsAny(haystack string, tokens []string) bool {
+	for _, token := range tokens {
+		if strings.Contains(haystack, token) {
+			return true
+		}
+	}
+	return false
 }
 
 // applySalaryGate fires when the opening states a salary below the required

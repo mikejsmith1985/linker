@@ -121,10 +121,11 @@ func (s *PG) SavePreferences(ctx context.Context, p Preferences) (int64, error) 
 	var id int64
 	err = s.db.QueryRow(ctx,
 		`INSERT INTO preferences
-		   (required_salary_min, salary_currency, work_location_pref, willing_to_travel,
+		   (required_salary_min, salary_currency, work_location_pref, location, willing_to_travel,
 		    willing_to_relocate, browser_automation_ack, enabled_sources, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, now()) RETURNING id`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now()) RETURNING id`,
 		p.RequiredSalaryMin, defaultString(p.SalaryCurrency, "USD"), string(defaultWorkLocation(p.WorkLocationPref)),
+		defaultString(p.Location, "United States"),
 		p.WillingToTravel, p.WillingToRelocate, p.BrowserAutomationAck, string(sources),
 	).Scan(&id)
 	if err != nil {
@@ -140,13 +141,13 @@ func (s *PG) GetPreferences(ctx context.Context) (Preferences, error) {
 	var loc string
 	var sources []byte
 	err := s.db.QueryRow(ctx,
-		`SELECT id, required_salary_min, salary_currency, work_location_pref, willing_to_travel,
+		`SELECT id, required_salary_min, salary_currency, work_location_pref, location, willing_to_travel,
 		        willing_to_relocate, browser_automation_ack, enabled_sources, updated_at
 		   FROM preferences ORDER BY id DESC LIMIT 1`,
-	).Scan(&p.ID, &p.RequiredSalaryMin, &p.SalaryCurrency, &loc, &p.WillingToTravel,
+	).Scan(&p.ID, &p.RequiredSalaryMin, &p.SalaryCurrency, &loc, &p.Location, &p.WillingToTravel,
 		&p.WillingToRelocate, &p.BrowserAutomationAck, &sources, &p.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Preferences{SalaryCurrency: "USD", WorkLocationPref: WorkRemote}, nil
+		return Preferences{SalaryCurrency: "USD", WorkLocationPref: WorkRemote, Location: "United States"}, nil
 	}
 	if err != nil {
 		return Preferences{}, fmt.Errorf("get preferences: %w", err)

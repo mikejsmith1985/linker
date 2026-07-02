@@ -148,6 +148,7 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		RequiredSalaryMin:    atoiOrZero(r.FormValue("required_salary_min")),
 		SalaryCurrency:       "USD",
 		WorkLocationPref:     parseWorkLocation(r.FormValue("work_location_pref")),
+		Location:             defaultLocation(r.FormValue("location")),
 		WillingToTravel:      r.FormValue("willing_to_travel") != "",
 		WillingToRelocate:    r.FormValue("willing_to_relocate") != "",
 		BrowserAutomationAck: ack,
@@ -433,6 +434,13 @@ func atoiOrZero(s string) int {
 		return 0
 	}
 	return n
+}
+
+func defaultLocation(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "United States"
+	}
+	return strings.TrimSpace(s)
 }
 
 func parseWorkLocation(s string) store.WorkLocation {

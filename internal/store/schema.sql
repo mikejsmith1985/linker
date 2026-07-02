@@ -16,12 +16,15 @@ CREATE TABLE IF NOT EXISTS preferences (
     required_salary_min    INTEGER     NOT NULL DEFAULT 0,
     salary_currency        TEXT        NOT NULL DEFAULT 'USD',
     work_location_pref     TEXT        NOT NULL DEFAULT 'remote',
+    location               TEXT        NOT NULL DEFAULT 'United States',
     willing_to_travel      BOOLEAN     NOT NULL DEFAULT FALSE,
     willing_to_relocate    BOOLEAN     NOT NULL DEFAULT FALSE,
     browser_automation_ack BOOLEAN     NOT NULL DEFAULT FALSE,
     enabled_sources        JSONB       NOT NULL DEFAULT '[]',
     updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Add the location column to preferences tables created before it existed.
+ALTER TABLE preferences ADD COLUMN IF NOT EXISTS location TEXT NOT NULL DEFAULT 'United States';
 
 CREATE TABLE IF NOT EXISTS searches (
     id                   BIGSERIAL PRIMARY KEY,

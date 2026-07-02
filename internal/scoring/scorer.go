@@ -127,7 +127,7 @@ func composeExplanation(fit string, gate GateResult) string {
 
 func describeGates(fired map[string]int) string {
 	labels := []string{}
-	for _, key := range []string{GateSalary, GateWorkLocation, GateTravel, GateRelocate} {
+	for _, key := range []string{GateSalary, GateWorkLocation, GateLocation, GateTravel, GateRelocate} {
 		if _, ok := fired[key]; ok {
 			labels = append(labels, key)
 		}
