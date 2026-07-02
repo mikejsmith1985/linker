@@ -174,7 +174,7 @@
 - [x] T048 [P] Rewrite `README.md` to describe the resume-driven job matcher (replace the post-drafter description)
 - [x] T049 Update `docker-compose.yml` and `Dockerfile` for the new env keys (drop GitHub/Buffer, add Adzuna)
 - [x] T050 Run `make vet` and `make test`; ensure all unit (<10ms) and integration suites are green
-- [ ] T051 Execute `quickstart.md` validation scenarios 1–9 and confirm each passes by observation (Article X) — **BLOCKED here: needs a live Postgres and real ANTHROPIC_API_KEY / ADZUNA credentials. Run `docker compose up` locally and walk the quickstart. All logic is covered by unit/integration tests in the meantime.**
+- [ ] T051 Execute `quickstart.md` validation scenarios 1–9 and confirm each passes by observation (Article X) — **PARTIALLY VALIDATED LIVE (2026-07-02):** booted the built binary against a real Postgres (docker); verified migrations create all 7 tables, the dashboard/settings pages render, `/static/styles.css` serves as `text/css`, preferences persist and reflect back, and the deterministic guard paths all behave: unsupported/empty resume upload → 400 (FR-018), search without a resume → 400, and **enabling the browser source without acknowledgment → 400 (FR-023)**. **STILL BLOCKED:** the LLM-dependent scenarios (resume profile extraction, scoring, document generation) and Adzuna discovery need a real `ANTHROPIC_API_KEY` and `ADZUNA_APP_ID/KEY` — run `docker compose up` locally with those set to finish scenarios 3–7.
 - [ ] T051a Verify the plan's performance targets by observation (**C2**): full search <~60s, single-document generation <~10s, HTMX partials <~300ms — **BLOCKED here: same live-infra requirement as T051; measure during the local quickstart run.**
 
 ---
