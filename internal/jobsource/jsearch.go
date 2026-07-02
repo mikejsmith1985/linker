@@ -28,9 +28,11 @@ type JSearch struct {
 // NewJSearch builds the JSearch source from a RapidAPI key.
 func NewJSearch(apiKey string) *JSearch {
 	return &JSearch{
-		apiKey:   apiKey,
-		http:     &http.Client{},
-		baseURL:  "https://jsearch.p.rapidapi.com/search",
+		apiKey: apiKey,
+		http:   &http.Client{},
+		// JSearch's search endpoint is versioned as /search-v2; the older /search
+		// path now returns 404 "endpoint does not exist".
+		baseURL:  "https://jsearch.p.rapidapi.com/search-v2",
 		host:     "jsearch.p.rapidapi.com",
 		country:  "us",
 		numPages: 1,

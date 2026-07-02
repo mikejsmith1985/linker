@@ -3,6 +3,7 @@ package jobsource
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -72,6 +73,10 @@ func TestJSearchMapsResults(t *testing.T) {
 	// The API key + host headers must be sent.
 	if rt.lastKey != "test-key" || rt.lastHost != "jsearch.p.rapidapi.com" {
 		t.Errorf("auth headers not sent: key=%q host=%q", rt.lastKey, rt.lastHost)
+	}
+	// Must hit the versioned search endpoint.
+	if !strings.Contains(rt.lastURL, "/search-v2") {
+		t.Errorf("request URL = %q, want the /search-v2 endpoint", rt.lastURL)
 	}
 }
 
