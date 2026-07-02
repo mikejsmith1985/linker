@@ -80,5 +80,5 @@ func (r *RemoteOK) Discover(ctx context.Context, query Query) ([]RawOpening, err
 			SourceName:       r.Name(),
 		})
 	}
-	return filterAndCap(openings, query.Keywords, defaultSourceCap), nil
+	return filterAndCap(openings, query.FilterKeywords(), defaultSourceCap), nil
 }

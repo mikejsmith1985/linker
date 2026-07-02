@@ -10,10 +10,41 @@ import (
 
 // Query is the discovery request derived from the resume and preferences.
 type Query struct {
-	Keywords          []string
+	// Keywords are skill terms used for client-side relevance filtering.
+	Keywords []string
+	// RoleTitles are target job titles used as distinct search queries, which
+	// yield far more relevant results than a dump of skills.
+	RoleTitles        []string
 	Location          string
 	WorkLocationPref  string
 	RequiredSalaryMin int
+}
+
+// maxSearchTerms caps how many role-title queries a search-based source runs, to
+// bound API usage.
+const maxSearchTerms = 3
+
+// SearchTerms returns the distinct query strings a search-based source should run
+// — the target role titles when available, otherwise the joined skill keywords.
+func (q Query) SearchTerms() []string {
+	if len(q.RoleTitles) > 0 {
+		terms := q.RoleTitles
+		if len(terms) > maxSearchTerms {
+			terms = terms[:maxSearchTerms]
+		}
+		return terms
+	}
+	joined := strings.TrimSpace(strings.Join(q.Keywords, " "))
+	if joined == "" {
+		return nil
+	}
+	return []string{joined}
+}
+
+// FilterKeywords returns the terms a client-filtered source matches against —
+// both skills and role titles, so relevant roles are kept.
+func (q Query) FilterKeywords() []string {
+	return append(append([]string{}, q.Keywords...), q.RoleTitles...)
 }
 
 // RawOpening is a posting as returned by one source, before de-duplication.

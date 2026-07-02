@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     and README for one-command local setup.
 
 ### Changed
+- Broadened discovery to search by **target job titles**, not just skill keywords.
+  Resume parsing now extracts likely role titles (e.g. "Scrum Master, Release
+  Train Engineer, Agile Coach"), and each is run as its own query across the
+  search-based sources; client-filtered sources match on skills + titles. JSearch
+  now fetches 2 result pages per query. This surfaces far more relevant roles for
+  non-developer profiles.
 - Added an optional **JSearch** source (RapidAPI) that indexes Google for Jobs —
   surfacing LinkedIn, Indeed, Glassdoor, and ZipRecruiter listings — the broadest
   coverage available. Enabled by setting `RAPIDAPI_KEY`; hourly/monthly pay is not

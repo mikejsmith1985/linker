@@ -60,14 +60,32 @@ type adzunaResponse struct {
 	} `json:"results"`
 }
 
-// Discover queries Adzuna and maps its results into RawOpenings.
+// Discover runs each target-role query against Adzuna and merges the results.
+// Duplicates are collapsed later by the registry.
 func (a *Adzuna) Discover(ctx context.Context, query Query) ([]RawOpening, error) {
+	var openings []RawOpening
+	var lastErr error
+	for _, term := range query.SearchTerms() {
+		batch, err := a.searchOne(ctx, term, query)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		openings = append(openings, batch...)
+	}
+	if len(openings) == 0 && lastErr != nil {
+		return nil, lastErr
+	}
+	return openings, nil
+}
+
+func (a *Adzuna) searchOne(ctx context.Context, term string, query Query) ([]RawOpening, error) {
 	endpoint := fmt.Sprintf("%s/jobs/%s/search/1", a.baseURL, a.country)
 	params := url.Values{}
 	params.Set("app_id", a.appID)
 	params.Set("app_key", a.appKey)
 	params.Set("results_per_page", strconv.Itoa(a.perPage))
-	params.Set("what", strings.Join(query.Keywords, " "))
+	params.Set("what", term)
 	if query.Location != "" {
 		params.Set("where", query.Location)
 	}

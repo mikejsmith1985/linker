@@ -35,7 +35,7 @@ func NewJSearch(apiKey string) *JSearch {
 		baseURL:  "https://jsearch.p.rapidapi.com/search-v2",
 		host:     "jsearch.p.rapidapi.com",
 		country:  "us",
-		numPages: 1,
+		numPages: 2,
 	}
 }
 
@@ -66,10 +66,29 @@ type jsearchResponse struct {
 	} `json:"data"`
 }
 
-// Discover queries JSearch and maps its results into RawOpenings.
+// Discover runs each target-role query against JSearch and merges the mapped
+// results. Duplicates across queries are collapsed later by the registry.
 func (j *JSearch) Discover(ctx context.Context, query Query) ([]RawOpening, error) {
+	var openings []RawOpening
+	var lastErr error
+	for _, term := range query.SearchTerms() {
+		batch, err := j.searchOne(ctx, term)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		openings = append(openings, batch...)
+	}
+	if len(openings) == 0 && lastErr != nil {
+		return nil, lastErr
+	}
+	return openings, nil
+}
+
+// searchOne runs a single query term against JSearch.
+func (j *JSearch) searchOne(ctx context.Context, term string) ([]RawOpening, error) {
 	params := url.Values{}
-	params.Set("query", strings.TrimSpace(strings.Join(query.Keywords, " ")))
+	params.Set("query", term)
 	params.Set("page", "1")
 	params.Set("num_pages", strconv.Itoa(j.numPages))
 	params.Set("country", j.country)
