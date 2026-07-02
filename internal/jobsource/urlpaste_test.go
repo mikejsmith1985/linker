@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/mikejsmith1985/linker/internal/claude"
 )
@@ -96,6 +97,18 @@ func TestURLPasteRejectsNonJobPage(t *testing.T) {
 
 	if _, err := src.Discover(context.Background(), Query{}); err == nil {
 		t.Error("expected error when the only URL is not a job posting")
+	}
+}
+
+func TestTruncateDoesNotSplitMultibyteRune(t *testing.T) {
+	// An em-dash is 3 bytes; truncating to 3 bytes would land mid-character.
+	s := "aa—bb"
+	got := truncate(s, 3)
+	if !utf8.ValidString(got) {
+		t.Errorf("truncate produced invalid UTF-8: %q", got)
+	}
+	if got != "aa" {
+		t.Errorf("truncate = %q, want aa (backed off the split rune)", got)
 	}
 }
 

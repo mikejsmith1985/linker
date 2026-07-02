@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mikejsmith1985/linker/internal/claude"
 )
@@ -146,9 +147,15 @@ func extractJSONObject(s string) string {
 	return ""
 }
 
+// truncate limits s to at most n bytes without splitting a multi-byte UTF-8
+// character (which would produce an invalid byte sequence Postgres rejects).
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n]
+	trimmed := s[:n]
+	for len(trimmed) > 0 && !utf8.ValidString(trimmed) {
+		trimmed = trimmed[:len(trimmed)-1]
+	}
+	return trimmed
 }

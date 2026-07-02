@@ -146,16 +146,20 @@ func (o *Orchestrator) runWith(ctx context.Context, disc Discoverer) (int64, err
 func (o *Orchestrator) scoreAll(ctx context.Context, openings []store.JobOpening, resume store.Resume, prefs store.Preferences) ([]scored, error) {
 	out := make([]scored, 0, len(openings))
 	for _, opening := range openings {
+		// A single bad opening (unpersistable data, a transient scoring error)
+		// must not abort the whole search — log it and move on.
 		openingID, err := o.store.UpsertOpening(ctx, opening)
 		if err != nil {
-			return nil, fmt.Errorf("persist opening: %w", err)
+			o.log.Error("skipping opening: persist failed", "title", opening.Title, "err", err)
+			continue
 		}
 
 		result, reused := o.reusePriorScore(ctx, opening)
 		if !reused {
 			result, err = o.score.Score(ctx, resume.StructuredProfile, opening, prefs)
 			if err != nil {
-				return nil, fmt.Errorf("score opening %q: %w", opening.Title, err)
+				o.log.Error("skipping opening: score failed", "title", opening.Title, "err", err)
+				continue
 			}
 		}
 		out = append(out, scored{openingID: openingID, opening: opening, result: result})

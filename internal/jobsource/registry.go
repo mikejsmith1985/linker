@@ -69,19 +69,27 @@ func normalize(s string) string {
 }
 
 // toOpening converts a raw opening into a domain opening with its canonical key.
+// All text is sanitized to valid UTF-8 so a stray byte from a source never
+// breaks the (UTF8) database insert.
 func toOpening(raw RawOpening, key string) store.JobOpening {
 	return store.JobOpening{
 		CanonicalKey:     key,
-		Title:            raw.Title,
-		Employer:         raw.Employer,
-		Location:         raw.Location,
+		Title:            cleanUTF8(raw.Title),
+		Employer:         cleanUTF8(raw.Employer),
+		Location:         cleanUTF8(raw.Location),
 		WorkLocationType: workLocation(raw.WorkLocationType),
 		SalaryMin:        raw.SalaryMin,
 		SalaryMax:        raw.SalaryMax,
-		Description:      raw.Description,
+		Description:      cleanUTF8(raw.Description),
 		SourceNames:      []string{raw.SourceName},
-		OriginalURL:      raw.OriginalURL,
+		OriginalURL:      cleanUTF8(raw.OriginalURL),
 	}
+}
+
+// cleanUTF8 strips invalid UTF-8 byte sequences and null bytes that Postgres
+// text columns reject.
+func cleanUTF8(s string) string {
+	return strings.ReplaceAll(strings.ToValidUTF8(s, ""), "\x00", "")
 }
 
 // mergeInto folds a duplicate raw opening into an already-seen opening, keeping

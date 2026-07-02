@@ -107,6 +107,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     opt-in and `playwright install` step.
 
 ### Fixed
+- Job text is truncated on UTF-8 rune boundaries and sanitized before storage, so
+  a multi-byte character (em-dash, bullet) split by truncation no longer produces
+  an "invalid byte sequence for encoding UTF8" error that failed the whole search.
+- A single unpersistable or unscorable opening is now skipped (logged) instead of
+  aborting the entire search — one bad listing can't zero out the results.
 - JSearch now calls the versioned `/search-v2` endpoint; the old `/search` path
   returns 404 ("endpoint does not exist") and left the source non-functional.
 - Parse the `/search-v2` response envelope, whose `data` is an object wrapping a

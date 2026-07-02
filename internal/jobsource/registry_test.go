@@ -79,6 +79,26 @@ func TestRegistryRecordsNoResults(t *testing.T) {
 	}
 }
 
+func TestCleanUTF8StripsInvalidAndNull(t *testing.T) {
+	// Incomplete em-dash sequence (0xe2 0x80) and a null byte must be stripped.
+	if got := cleanUTF8("ok\xe2\x80"); got != "ok" {
+		t.Errorf("cleanUTF8 = %q, want ok (invalid bytes stripped)", got)
+	}
+	if got := cleanUTF8("a\x00b"); got != "ab" {
+		t.Errorf("cleanUTF8 = %q, want ab (null stripped)", got)
+	}
+	if got := cleanUTF8("clean—text"); got != "clean—text" {
+		t.Errorf("cleanUTF8 mangled valid text: %q", got)
+	}
+}
+
+func TestToOpeningSanitizes(t *testing.T) {
+	op := toOpening(RawOpening{Title: "Eng\xe2\x80", Description: "d\x00"}, "k")
+	if op.Title != "Eng" || op.Description != "d" {
+		t.Errorf("toOpening did not sanitize: %+v", op)
+	}
+}
+
 func TestWorkLocationMapping(t *testing.T) {
 	if workLocation("Remote") != store.WorkRemote {
 		t.Error("Remote should map to WorkRemote")
