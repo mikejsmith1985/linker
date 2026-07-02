@@ -53,6 +53,15 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestJSearchConfigured(t *testing.T) {
+	if (Config{}).JSearchConfigured() {
+		t.Error("JSearchConfigured() = true, want false without a key")
+	}
+	if !(Config{RapidAPIKey: "k"}).JSearchConfigured() {
+		t.Error("JSearchConfigured() = false, want true with a key")
+	}
+}
+
 func TestAdzunaConfigured(t *testing.T) {
 	cases := []struct {
 		id, key string

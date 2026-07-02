@@ -8,15 +8,20 @@ import (
 	"testing"
 )
 
-// fakeRoundTripper returns a canned response for any request.
+// fakeRoundTripper returns a canned response for any request and records what it
+// received.
 type fakeRoundTripper struct {
-	body    string
-	status  int
-	lastURL string
+	body     string
+	status   int
+	lastURL  string
+	lastKey  string
+	lastHost string
 }
 
 func (f *fakeRoundTripper) Do(req *http.Request) (*http.Response, error) {
 	f.lastURL = req.URL.String()
+	f.lastKey = req.Header.Get("X-RapidAPI-Key")
+	f.lastHost = req.Header.Get("X-RapidAPI-Host")
 	status := f.status
 	if status == 0 {
 		status = http.StatusOK

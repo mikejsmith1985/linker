@@ -106,5 +106,8 @@ func buildSources(cfg config.Config) []jobsource.Source {
 	if cfg.AdzunaConfigured() {
 		sources = append(sources, jobsource.NewAdzuna(cfg.AdzunaAppID, cfg.AdzunaAppKey))
 	}
+	if cfg.JSearchConfigured() {
+		sources = append(sources, jobsource.NewJSearch(cfg.RapidAPIKey))
+	}
 	return sources
 }
