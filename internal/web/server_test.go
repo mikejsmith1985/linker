@@ -87,10 +87,19 @@ func (f *webFakeStore) UpsertSelection(_ context.Context, _ int64, opened bool) 
 	return nil
 }
 
-// fakeActions records RunSearch calls.
-type fakeActions struct{ id int64 }
+// fakeActions records RunSearch/RunSearchURLs calls.
+type fakeActions struct {
+	id       int64
+	gotURLs  []string
+	urlsSeen bool
+}
 
-func (a fakeActions) RunSearch(context.Context) (int64, error) { return a.id, nil }
+func (a *fakeActions) RunSearch(context.Context) (int64, error) { return a.id, nil }
+func (a *fakeActions) RunSearchURLs(_ context.Context, urls []string) (int64, error) {
+	a.urlsSeen = true
+	a.gotURLs = urls
+	return a.id, nil
+}
 
 // fakeIngestor returns a canned result or error.
 type fakeIngestor struct{ err error }
@@ -114,11 +123,11 @@ func (d *fakeDocs) EnsureDocument(_ context.Context, matchID int64, docType stor
 }
 
 func newTestServer(st store.Store) http.Handler {
-	return NewServer(st, fakeIngestor{}, fakeActions{id: 7}, &fakeDocs{}, nil).Routes()
+	return NewServer(st, fakeIngestor{}, &fakeActions{id: 7}, &fakeDocs{}, nil).Routes()
 }
 
 func newTestServerWithDocs(st store.Store, docs DocumentService) http.Handler {
-	return NewServer(st, fakeIngestor{}, fakeActions{id: 7}, docs, nil).Routes()
+	return NewServer(st, fakeIngestor{}, &fakeActions{id: 7}, docs, nil).Routes()
 }
 
 func TestSearchResultsShowsQualifyingAndHealth(t *testing.T) {
@@ -163,7 +172,7 @@ func TestSearchResultsEmptyState(t *testing.T) {
 
 func TestUploadRejectsUnreadableResume(t *testing.T) {
 	st := &webFakeStore{}
-	server := NewServer(st, fakeIngestor{err: resume.ErrUnreadable}, fakeActions{}, &fakeDocs{}, nil).Routes()
+	server := NewServer(st, fakeIngestor{err: resume.ErrUnreadable}, &fakeActions{}, &fakeDocs{}, nil).Routes()
 
 	body, contentType := multipartResume(t, "cv.txt", "anything")
 	req := httptest.NewRequest(http.MethodPost, "/resume", body)
@@ -289,6 +298,39 @@ func TestDownloadDocumentPDF(t *testing.T) {
 	}
 	if !strings.HasPrefix(rr.Body.String(), "%PDF") {
 		t.Error("body is not a PDF")
+	}
+}
+
+func TestSearchURLsParsesAndForwardsURLs(t *testing.T) {
+	st := &webFakeStore{}
+	actions := &fakeActions{id: 12}
+	server := NewServer(st, fakeIngestor{}, actions, &fakeDocs{}, nil).Routes()
+
+	form := "urls=" + "https://a.example/1%0Ahttps://b.example/2%20https://c.example/3"
+	req := httptest.NewRequest(http.MethodPost, "/search/urls", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	server.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rr.Code)
+	}
+	if rr.Header().Get("Location") != "/search/12" {
+		t.Errorf("Location = %q, want /search/12", rr.Header().Get("Location"))
+	}
+	if len(actions.gotURLs) != 3 {
+		t.Errorf("parsed %d urls, want 3: %v", len(actions.gotURLs), actions.gotURLs)
+	}
+}
+
+func TestSearchURLsRejectsEmpty(t *testing.T) {
+	st := &webFakeStore{}
+	req := httptest.NewRequest(http.MethodPost, "/search/urls", strings.NewReader("urls=   "))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for no URLs", rr.Code)
 	}
 }
 

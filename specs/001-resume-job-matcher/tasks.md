@@ -136,12 +136,12 @@
 
 ### Tests for User Story 4 (write first, must FAIL) ⚠️
 
-- [ ] T039 [P] [US4] Unit tests for the urlpaste adapter (parses a posting; a non-job/unfetchable URL errors per-URL without failing the batch) in `internal/jobsource/urlpaste_test.go`
+- [x] T039 [P] [US4] Unit tests for the urlpaste adapter (parses a posting; a non-job/unfetchable URL errors per-URL without failing the batch) in `internal/jobsource/urlpaste_test.go`
 
 ### Implementation for User Story 4
 
-- [ ] T040 [US4] Implement the urlpaste adapter in `internal/jobsource/urlpaste.go` (FR-021)
-- [ ] T041 [US4] Implement `POST /search/urls` handler + paste-URL input in `internal/web/server.go` and `internal/web/results.templ` (depends on T024, T040)
+- [x] T040 [US4] Implement the urlpaste adapter in `internal/jobsource/urlpaste.go` (FR-021)
+- [x] T041 [US4] Implement `POST /search/urls` handler + paste-URL input in `internal/web/server.go` and `internal/web/results.templ` (depends on T024, T040)
 
 **Checkpoint**: US1–US4 independently functional.
 

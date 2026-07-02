@@ -99,7 +99,7 @@ func TestRunSearchRanksAndFlagsQualifying(t *testing.T) {
 	}
 	scorer := fakeScorer{byTitle: map[string]int{"Weak": 40, "Strong": 90}}
 
-	orch := New(st, disc, scorer, nil, nil)
+	orch := New(st, disc, scorer, nil, nil, nil)
 	searchID, err := orch.RunSearch(context.Background())
 	if err != nil {
 		t.Fatalf("RunSearch: %v", err)
@@ -129,9 +129,43 @@ func TestRunSearchRanksAndFlagsQualifying(t *testing.T) {
 	}
 }
 
+func TestRunSearchURLsUsesFactoryDiscoverer(t *testing.T) {
+	st := &fakeStore{
+		resume: store.Resume{ID: 1, StructuredProfile: "Skills: Go", RawText: "facts"},
+		prefs:  store.Preferences{WorkLocationPref: store.WorkRemote},
+	}
+	var gotURLs []string
+	factory := func(urls []string) Discoverer {
+		gotURLs = urls
+		return fakeDiscoverer{
+			openings: []store.JobOpening{{Title: "Pasted", CanonicalKey: "k-pasted"}},
+			health:   map[string]string{"pasted-url": jobsource.HealthSucceeded},
+		}
+	}
+	orch := New(st, fakeDiscoverer{}, fakeScorer{byTitle: map[string]int{"Pasted": 80}}, nil, factory, nil)
+
+	if _, err := orch.RunSearchURLs(context.Background(), []string{"https://x/1"}); err != nil {
+		t.Fatalf("RunSearchURLs: %v", err)
+	}
+	if len(gotURLs) != 1 || gotURLs[0] != "https://x/1" {
+		t.Errorf("factory got urls %v, want [https://x/1]", gotURLs)
+	}
+	if len(st.created) != 1 || st.created[0].Score != 80 {
+		t.Errorf("pasted opening not scored: %+v", st.created)
+	}
+}
+
+func TestRunSearchURLsUnavailableWithoutFactory(t *testing.T) {
+	st := &fakeStore{resume: store.Resume{ID: 1}, prefs: store.Preferences{}}
+	orch := New(st, fakeDiscoverer{}, fakeScorer{}, nil, nil, nil)
+	if _, err := orch.RunSearchURLs(context.Background(), []string{"x"}); err != ErrURLSearchUnavailable {
+		t.Errorf("err = %v, want ErrURLSearchUnavailable", err)
+	}
+}
+
 func TestRunSearchErrorsWithoutResume(t *testing.T) {
 	st := &fakeStore{resumeMissing: true}
-	orch := New(st, fakeDiscoverer{}, fakeScorer{}, nil, nil)
+	orch := New(st, fakeDiscoverer{}, fakeScorer{}, nil, nil, nil)
 	if _, err := orch.RunSearch(context.Background()); err != ErrNoResume {
 		t.Errorf("err = %v, want ErrNoResume", err)
 	}

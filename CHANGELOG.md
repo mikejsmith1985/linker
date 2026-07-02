@@ -62,6 +62,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     then redirects to the live listing. It never submits an application on the
     user's behalf; an unreachable posting reports "no longer reachable"
     (`internal/web`; FR-011/012/013).
+  - Paste-a-URL scoring: paste one or more job posting URLs and each is fetched,
+    parsed, scored, and (if it reaches 70) given tailored documents like any
+    discovered match. A URL that cannot be fetched or is not a job posting fails
+    on its own without breaking the batch (`internal/jobsource` URL source;
+    `POST /search/urls`; FR-021).
 
 ### Fixed
 - Pre-push hook (`.forge/hooks/pre-push` and `.forge/hooks/pre-push.ps1`) no

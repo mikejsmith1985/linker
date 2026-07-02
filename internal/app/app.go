@@ -51,7 +51,10 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	scorer := scoring.NewScorer(llm)
 	docService := documents.NewService(documents.NewGenerator(llm), st)
 	registry := jobsource.NewRegistry(buildSources(cfg)...)
-	orch := orchestrator.New(st, registry, scorer, docService, log)
+	urlFactory := func(urls []string) orchestrator.Discoverer {
+		return jobsource.NewRegistry(jobsource.NewURLPaste(urls, llm))
+	}
+	orch := orchestrator.New(st, registry, scorer, docService, urlFactory, log)
 	server := web.NewServer(st, ingestor, orch, docService, log)
 
 	httpSrv := &http.Server{

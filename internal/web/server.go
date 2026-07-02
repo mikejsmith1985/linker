@@ -26,6 +26,7 @@ import (
 // Actions are the orchestrator-backed operations the dashboard can trigger.
 type Actions interface {
 	RunSearch(ctx context.Context) (int64, error)
+	RunSearchURLs(ctx context.Context, urls []string) (int64, error)
 }
 
 // ResumeIngestor validates, parses, and stores an uploaded resume.
@@ -67,6 +68,7 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/settings", s.handleSettings)
 	r.Post("/settings", s.handleSaveSettings)
 	r.Post("/search", s.handleSearch)
+	r.Post("/search/urls", s.handleSearchURLs)
 	r.Get("/search/{id}", s.handleSearchResults)
 	r.Get("/job/{id}", s.handleJob)
 	r.Post("/job/{id}/documents/{docType}", s.handleSaveDocument)
@@ -156,6 +158,29 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		s.fail(w, "run search", err)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/search/%d", searchID), http.StatusSeeOther)
+}
+
+// handleSearchURLs scores one or more user-pasted posting URLs (FR-021).
+func (s *Server) handleSearchURLs(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "could not read form", http.StatusBadRequest)
+		return
+	}
+	urls := splitURLs(r.FormValue("urls"))
+	if len(urls) == 0 {
+		http.Error(w, "paste at least one posting URL", http.StatusBadRequest)
+		return
+	}
+	searchID, err := s.actions.RunSearchURLs(r.Context(), urls)
+	if errors.Is(err, orchestrator.ErrNoResume) {
+		http.Error(w, "upload a resume before searching", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		s.fail(w, "run url search", err)
 		return
 	}
 	http.Redirect(w, r, fmt.Sprintf("/search/%d", searchID), http.StatusSeeOther)
@@ -455,6 +480,21 @@ func docTypeLabel(docType store.DocType) string {
 }
 
 func joinFlags(flags []string) string { return strings.Join(flags, ", ") }
+
+// splitURLs parses a textarea of pasted URLs separated by newlines, spaces, or
+// commas into a clean list.
+func splitURLs(raw string) []string {
+	fields := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == '\n' || r == '\r' || r == ' ' || r == '\t' || r == ','
+	})
+	var out []string
+	for _, field := range fields {
+		if trimmed := strings.TrimSpace(field); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
 
 const styleCSS = `
 :root { --bg:#0f1115; --card:#1a1d24; --ink:#e7e9ee; --muted:#9aa3b2; --accent:#3b82f6; --ok:#16a34a; --danger:#ef4444; }

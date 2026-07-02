@@ -27,6 +27,16 @@ templ Home(resume *store.Resume, hasResume bool) {
 				<p class="hint">Upload a resume first.</p>
 			}
 		</section>
+		<section class="card">
+			<h2>Or score specific postings</h2>
+			<p class="hint">Paste one or more job posting URLs (one per line). Each is fetched, scored, and — if it reaches 70 — given tailored documents, just like a discovered match.</p>
+			<form method="post" action="/search/urls">
+				<textarea name="urls" rows="4" placeholder="https://…/job/123&#10;https://…/careers/456"></textarea>
+				<div class="actions">
+					<button type="submit" class="secondary" disabled?={ !hasResume }>Score pasted URLs</button>
+				</div>
+			</form>
+		</section>
 	}
 }
 

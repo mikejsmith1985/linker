@@ -36,21 +36,26 @@ type DocGenerator interface {
 	GenerateFor(ctx context.Context, matchID int64, opening store.JobOpening, resumeFacts string) error
 }
 
+// URLDiscovererFactory builds a discoverer for a set of user-pasted posting URLs.
+type URLDiscovererFactory func(urls []string) Discoverer
+
 // Orchestrator wires discovery, scoring, persistence, and document generation.
 type Orchestrator struct {
-	store store.Store
-	disc  Discoverer
-	score Scorer
-	docs  DocGenerator
-	log   *slog.Logger
+	store   store.Store
+	disc    Discoverer
+	score   Scorer
+	docs    DocGenerator
+	urlDisc URLDiscovererFactory
+	log     *slog.Logger
 }
 
-// New builds an orchestrator. docs may be nil to disable eager generation.
-func New(st store.Store, disc Discoverer, score Scorer, docs DocGenerator, log *slog.Logger) *Orchestrator {
+// New builds an orchestrator. docs may be nil to disable eager generation;
+// urlDisc may be nil to disable paste-a-URL search.
+func New(st store.Store, disc Discoverer, score Scorer, docs DocGenerator, urlDisc URLDiscovererFactory, log *slog.Logger) *Orchestrator {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Orchestrator{store: st, disc: disc, score: score, docs: docs, log: log}
+	return &Orchestrator{store: st, disc: disc, score: score, docs: docs, urlDisc: urlDisc, log: log}
 }
 
 // ErrNoResume is returned when a search is started without an active resume.
@@ -63,8 +68,26 @@ type scored struct {
 	result    scoring.Score
 }
 
-// RunSearch performs one on-demand search and returns the new search id.
+// ErrURLSearchUnavailable is returned when paste-a-URL search is not configured.
+var ErrURLSearchUnavailable = errors.New("paste-a-URL search is not available")
+
+// RunSearch performs one on-demand search over the configured sources.
 func (o *Orchestrator) RunSearch(ctx context.Context) (int64, error) {
+	return o.runWith(ctx, o.disc)
+}
+
+// RunSearchURLs scores a set of user-pasted posting URLs like a discovered
+// search (FR-021).
+func (o *Orchestrator) RunSearchURLs(ctx context.Context, urls []string) (int64, error) {
+	if o.urlDisc == nil {
+		return 0, ErrURLSearchUnavailable
+	}
+	return o.runWith(ctx, o.urlDisc(urls))
+}
+
+// runWith performs one on-demand search using the given discoverer and returns
+// the new search id.
+func (o *Orchestrator) runWith(ctx context.Context, disc Discoverer) (int64, error) {
 	resume, err := o.store.GetActiveResume(ctx)
 	if errors.Is(err, store.ErrNotFound) {
 		return 0, ErrNoResume
@@ -82,7 +105,7 @@ func (o *Orchestrator) RunSearch(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("create search: %w", err)
 	}
 
-	openings, health := o.disc.Discover(ctx, buildQuery(resume, prefs))
+	openings, health := disc.Discover(ctx, buildQuery(resume, prefs))
 
 	scoredList, err := o.scoreAll(ctx, openings, resume, prefs)
 	if err != nil {
