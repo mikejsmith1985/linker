@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     and README for one-command local setup.
 
 ### Changed
+- Added an optional **JSearch** source (RapidAPI) that indexes Google for Jobs —
+  surfacing LinkedIn, Indeed, Glassdoor, and ZipRecruiter listings — the broadest
+  coverage available. Enabled by setting `RAPIDAPI_KEY`; hourly/monthly pay is not
+  mistaken for an annual salary (`internal/jobsource` JSearch adapter).
 - Broadened job coverage with three more key-free sources — **RemoteOK**,
   **Arbeitnow**, and **Jobicy** — alongside Remotive, all always-on and needing
   no credentials. Their results are keyword-filtered and capped so a search stays

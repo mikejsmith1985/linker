@@ -36,9 +36,10 @@ resume + preferences
 - **Documents** are generated for the top 3 scores up front and on first open for the
   rest (then cached). A verification pass flags any skill or term the draft claims that
   your resume never mentions — so you never unknowingly submit a fabricated claim.
-- **Sources** are pluggable: **Remotive** (remote-only, no API key) by default, the
-  Adzuna aggregator API when you add credentials, one or more posting URLs you paste,
-  and an opt-in Playwright browser source for boards without a permitted API.
+- **Sources** are pluggable: the key-free **Remotive / RemoteOK / Arbeitnow / Jobicy**
+  by default, plus optional **Adzuna** and **JSearch** (Google for Jobs — surfaces
+  LinkedIn/Indeed/Glassdoor) when you add keys, **company targeting** straight from an
+  employer's ATS feed, posting URLs you paste, and an opt-in Playwright browser source.
 
 ## Quick start
 
@@ -59,6 +60,7 @@ Then open <http://localhost:8080>: upload your resume, set your preferences, and
 | `DATABASE_URL` | Postgres connection (set for you under docker compose) |
 | `ANTHROPIC_API_KEY` | Scoring and document generation with Claude |
 | `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` | *Optional* — adds the Adzuna source (free at developer.adzuna.com) alongside Remotive |
+| `RAPIDAPI_KEY` | *Optional* — adds the JSearch source (Google for Jobs → LinkedIn/Indeed/Glassdoor); free tier at rapidapi.com |
 
 The default **Remotive** source needs no credentials and returns remote roles out of
 the box. Adzuna is added only when its keys are set. See `.env.example` for all options.

@@ -19,6 +19,10 @@ type Config struct {
 	AdzunaAppID  string
 	AdzunaAppKey string
 
+	// RapidAPIKey enables the JSearch source (Google-for-Jobs, which surfaces
+	// LinkedIn/Indeed/Glassdoor listings). Optional.
+	RapidAPIKey string
+
 	// EnableBrowserSource turns on the opt-in Playwright browser source. It is
 	// off by default; even when on, the source still refuses to run until the
 	// user records the risk acknowledgment in preferences.
@@ -46,6 +50,7 @@ func Load(getenv Getenv) (Config, error) {
 		ClaudeModel:         firstNonEmpty(getenv("CLAUDE_MODEL"), defaultClaudeModel),
 		AdzunaAppID:         getenv("ADZUNA_APP_ID"),
 		AdzunaAppKey:        getenv("ADZUNA_APP_KEY"),
+		RapidAPIKey:         getenv("RAPIDAPI_KEY"),
 		EnableBrowserSource: strings.TrimSpace(getenv("ENABLE_BROWSER_SOURCE")) != "",
 		HTTPAddr:            firstNonEmpty(getenv("HTTP_ADDR"), defaultHTTPAddr),
 	}
@@ -67,6 +72,11 @@ func (c Config) Validate() error {
 // When false, the source registry skips it (and reports it as unavailable).
 func (c Config) AdzunaConfigured() bool {
 	return c.AdzunaAppID != "" && c.AdzunaAppKey != ""
+}
+
+// JSearchConfigured reports whether the JSearch (RapidAPI) source can run.
+func (c Config) JSearchConfigured() bool {
+	return c.RapidAPIKey != ""
 }
 
 func firstNonEmpty(values ...string) string {

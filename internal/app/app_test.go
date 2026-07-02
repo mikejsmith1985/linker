@@ -27,6 +27,13 @@ func TestBuildSourcesAddsAdzunaWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestBuildSourcesAddsJSearchWhenConfigured(t *testing.T) {
+	names := sourceNames(buildSources(config.Config{RapidAPIKey: "rk"}))
+	if len(names) != 5 || names[len(names)-1] != "jsearch" {
+		t.Errorf("sources = %v, want key-free defaults + jsearch", names)
+	}
+}
+
 func sourceNames(sources []jobsource.Source) []string {
 	names := make([]string, len(sources))
 	for i, s := range sources {
