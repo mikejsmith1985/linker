@@ -6,10 +6,9 @@ require (
 	github.com/a-h/templ v0.3.1020
 	github.com/anthropics/anthropic-sdk-go v1.47.0
 	github.com/go-chi/chi/v5 v5.3.0
-	github.com/google/go-github/v66 v66.0.0
 	github.com/jackc/pgx/v5 v5.10.0
+	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/pashagolub/pgxmock/v4 v4.9.0
-	golang.org/x/oauth2 v0.30.0
 )
 
 require (
@@ -21,7 +20,6 @@ require (
 	github.com/cli/browser v1.3.0 // indirect
 	github.com/fatih/color v1.16.0 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
-	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect

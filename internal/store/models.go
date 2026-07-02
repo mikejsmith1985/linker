@@ -1,68 +1,125 @@
-// Package store defines linker's domain types and the Postgres-backed
-// persistence layer for activity events, repo cursors, and drafted posts.
+// Package store defines the job-matcher's domain types and the Postgres-backed
+// persistence layer for resumes, preferences, searches, discovered openings,
+// scored match results, generated documents, and selections.
 package store
 
 import "time"
 
-// EventType enumerates the kinds of GitHub activity linker reacts to.
-type EventType string
+// WorkLocation is the onsite/hybrid/remote nature of a job or a preference.
+type WorkLocation string
 
 const (
-	EventCommit  EventType = "commit"
-	EventRelease EventType = "release"
-	EventReadme  EventType = "readme"
+	WorkOnsite  WorkLocation = "onsite"
+	WorkHybrid  WorkLocation = "hybrid"
+	WorkRemote  WorkLocation = "remote"
+	WorkUnknown WorkLocation = "unknown"
 )
 
-// PostStatus is the lifecycle state of a drafted LinkedIn post.
-type PostStatus string
+// SearchStatus is the lifecycle state of one discovery+scoring run.
+type SearchStatus string
 
 const (
-	StatusDraft     PostStatus = "draft"     // generated, awaiting review
-	StatusQueued    PostStatus = "queued"    // sent to Buffer (or stub)
-	StatusPublished PostStatus = "published" // confirmed live on LinkedIn
-	StatusRejected  PostStatus = "rejected"  // dismissed in the dashboard
+	SearchRunning   SearchStatus = "running"
+	SearchCompleted SearchStatus = "completed"
+	SearchFailed    SearchStatus = "failed"
 )
 
-// Event is a single piece of post-worthy GitHub activity. The triple
-// (Repo, Type, Ref) is unique and is what de-duplicates re-polled activity.
-type Event struct {
-	ID         int64
-	Repo       string
-	Type       EventType
-	Ref        string // commit sha, release tag, or README content hash
-	Title      string
-	Body       string
-	URL        string
-	DetectedAt time.Time
+// DocType distinguishes the two kinds of generated document.
+type DocType string
+
+const (
+	TailoredResume DocType = "tailored_resume"
+	CoverLetter    DocType = "cover_letter"
+)
+
+// Resume is the user's single active resume plus its extracted fact set. RawText
+// is the deterministically extracted text that the no-fabrication check runs
+// against; StructuredProfile is the LLM-organized skills/experience summary.
+type Resume struct {
+	ID                int64
+	OriginalFilename  string
+	Format            string // pdf | docx | txt
+	RawText           string
+	StructuredProfile string
+	IsActive          bool
+	CreatedAt         time.Time
 }
 
-// Post is a Claude-drafted LinkedIn post tied to the event that triggered it.
-type Post struct {
-	ID         int64
-	EventID    int64
-	Content    string
-	Hashtags   string
-	Status     PostStatus
-	ExternalID string // Buffer update id once queued
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	QueuedAt   *time.Time
+// Preferences are the scoring inputs. A single active row exists at a time.
+type Preferences struct {
+	ID                   int64
+	RequiredSalaryMin    int // 0 = unset
+	SalaryCurrency       string
+	WorkLocationPref     WorkLocation
+	WillingToTravel      bool
+	WillingToRelocate    bool
+	BrowserAutomationAck bool
+	EnabledSources       []string
+	UpdatedAt            time.Time
 }
 
-// PostWithEvent joins a post to its source event for display in the dashboard.
-type PostWithEvent struct {
-	Post
-	Repo       string
-	EventType  EventType
-	EventTitle string
-	EventURL   string
+// Search is one on-demand discovery+scoring run.
+type Search struct {
+	ID                  int64
+	ResumeID            int64
+	PreferencesSnapshot Preferences
+	Status              SearchStatus
+	SourceHealth        map[string]string // source name -> succeeded|failed|no_results
+	StartedAt           time.Time
+	FinishedAt          *time.Time
 }
 
-// Cursor records, per repo, the last activity linker has already seen so the
-// poller only asks GitHub for what is new.
-type Cursor struct {
-	Repo           string
-	LastCommitSHA  string
-	LastReleaseTag string
-	ReadmeHash     string
+// JobOpening is a discovered posting, de-duplicated by CanonicalKey.
+type JobOpening struct {
+	ID               int64
+	CanonicalKey     string
+	Title            string
+	Employer         string
+	Location         string
+	WorkLocationType WorkLocation
+	SalaryMin        int // 0 = unstated
+	SalaryMax        int // 0 = unstated
+	Description      string
+	SourceNames      []string
+	OriginalURL      string
+	DiscoveredAt     time.Time
+}
+
+// MatchResult pairs one opening with a search's resume+preferences: the score
+// and its explanation. Results below the threshold are stored but never shown.
+type MatchResult struct {
+	ID               int64
+	SearchID         int64
+	JobOpeningID     int64
+	Score            int
+	ScoreExplanation string
+	GatePenalties    map[string]int
+	IsQualifying     bool
+	Rank             int
+}
+
+// MatchWithOpening joins a match result to its opening for display.
+type MatchWithOpening struct {
+	MatchResult
+	Opening JobOpening
+}
+
+// GeneratedDocument is a tailored resume or cover letter for one match result.
+type GeneratedDocument struct {
+	ID               int64
+	MatchResultID    int64
+	Type             DocType
+	ContentMarkdown  string
+	FabricationFlags []string
+	WasEditedByUser  bool
+	GeneratedAt      time.Time
+}
+
+// Selection records the user's decision to pursue an opening and that its
+// posting was opened for manual submission. The system never auto-submits.
+type Selection struct {
+	ID               int64
+	MatchResultID    int64
+	WasPostingOpened bool
+	SelectedAt       time.Time
 }

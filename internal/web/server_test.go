@@ -1,237 +1,200 @@
 package web
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/mikejsmith1985/linker/internal/resume"
 	"github.com/mikejsmith1985/linker/internal/store"
 )
 
-// ---- fakes ----
-
-type fakeStore struct {
-	drafts      []store.PostWithEvent
-	history     []store.PostWithEvent
-	lastQueued  *time.Time
-	posts       map[int64]store.Post
-	events      map[int64]store.Event
-	updated     map[int64][2]string // id -> {content, hashtags}
-	statusSet   map[int64]store.PostStatus
-	markedExtID map[int64]string
+// webFakeStore implements store.Store for handler tests.
+type webFakeStore struct {
+	search     store.Search
+	qualifying []store.MatchWithOpening
+	listCalled bool
+	savedPrefs store.Preferences
+	activeErr  error
 }
 
-func newFakeStore() *fakeStore {
-	return &fakeStore{
-		posts:       map[int64]store.Post{},
-		events:      map[int64]store.Event{},
-		updated:     map[int64][2]string{},
-		statusSet:   map[int64]store.PostStatus{},
-		markedExtID: map[int64]string{},
+func (f *webFakeStore) RunMigrations(context.Context) error                     { return nil }
+func (f *webFakeStore) SaveResume(context.Context, store.Resume) (int64, error) { return 1, nil }
+func (f *webFakeStore) GetActiveResume(context.Context) (store.Resume, error) {
+	if f.activeErr != nil {
+		return store.Resume{}, f.activeErr
+	}
+	return store.Resume{ID: 1, OriginalFilename: "cv.pdf", Format: "pdf", IsActive: true}, nil
+}
+func (f *webFakeStore) SavePreferences(_ context.Context, p store.Preferences) (int64, error) {
+	f.savedPrefs = p
+	return 1, nil
+}
+func (f *webFakeStore) GetPreferences(context.Context) (store.Preferences, error) {
+	return store.Preferences{WorkLocationPref: store.WorkRemote, SalaryCurrency: "USD"}, nil
+}
+func (f *webFakeStore) CreateSearch(context.Context, int64, store.Preferences) (int64, error) {
+	return 1, nil
+}
+func (f *webFakeStore) FinishSearch(context.Context, int64, store.SearchStatus, map[string]string) error {
+	return nil
+}
+func (f *webFakeStore) GetSearch(context.Context, int64) (store.Search, error) { return f.search, nil }
+func (f *webFakeStore) UpsertOpening(context.Context, store.JobOpening) (int64, error) {
+	return 1, nil
+}
+func (f *webFakeStore) FindScoredOpening(context.Context, string) (store.MatchResult, error) {
+	return store.MatchResult{}, store.ErrNotFound
+}
+func (f *webFakeStore) CreateMatchResult(context.Context, store.MatchResult) (int64, error) {
+	return 1, nil
+}
+func (f *webFakeStore) ListQualifying(context.Context, int64) ([]store.MatchWithOpening, error) {
+	f.listCalled = true
+	return f.qualifying, nil
+}
+func (f *webFakeStore) GetMatchWithOpening(context.Context, int64) (store.MatchWithOpening, error) {
+	return store.MatchWithOpening{}, nil
+}
+func (f *webFakeStore) SaveDocument(context.Context, store.GeneratedDocument) (int64, error) {
+	return 1, nil
+}
+func (f *webFakeStore) GetDocument(context.Context, int64, store.DocType) (store.GeneratedDocument, error) {
+	return store.GeneratedDocument{}, store.ErrNotFound
+}
+func (f *webFakeStore) UpdateDocumentContent(context.Context, int64, string) error { return nil }
+func (f *webFakeStore) UpsertSelection(context.Context, int64, bool) error         { return nil }
+
+// fakeActions records RunSearch calls.
+type fakeActions struct{ id int64 }
+
+func (a fakeActions) RunSearch(context.Context) (int64, error) { return a.id, nil }
+
+// fakeIngestor returns a canned result or error.
+type fakeIngestor struct{ err error }
+
+func (i fakeIngestor) Ingest(context.Context, string, string, []byte) (store.Resume, error) {
+	return store.Resume{ID: 1}, i.err
+}
+
+func newTestServer(st store.Store) http.Handler {
+	return NewServer(st, fakeIngestor{}, fakeActions{id: 7}, nil).Routes()
+}
+
+func TestSearchResultsShowsQualifyingAndHealth(t *testing.T) {
+	st := &webFakeStore{
+		search: store.Search{
+			ID:           1,
+			SourceHealth: map[string]string{"adzuna": "succeeded", "broken": "failed"},
+		},
+		qualifying: []store.MatchWithOpening{
+			{
+				MatchResult: store.MatchResult{Score: 85, ScoreExplanation: "great fit", IsQualifying: true, Rank: 1},
+				Opening:     store.JobOpening{Title: "Senior Go Engineer", Employer: "Acme", OriginalURL: "https://x"},
+			},
+		},
+	}
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/search/1", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Senior Go Engineer") || !strings.Contains(body, "85") {
+		t.Error("qualifying match not rendered")
+	}
+	if !st.listCalled {
+		t.Error("handler did not call ListQualifying (the sub-70 filter)")
+	}
+	if !strings.Contains(body, "adzuna") || !strings.Contains(body, "broken") || !strings.Contains(body, "failed") {
+		t.Error("source health not rendered")
 	}
 }
 
-func (f *fakeStore) GetCursor(context.Context, string) (store.Cursor, error) {
-	return store.Cursor{}, nil
-}
-func (f *fakeStore) SaveCursor(context.Context, store.Cursor) error { return nil }
-func (f *fakeStore) InsertEvent(context.Context, store.Event) (int64, bool, error) {
-	return 0, false, nil
-}
-func (f *fakeStore) GetEvent(_ context.Context, id int64) (store.Event, error) {
-	return f.events[id], nil
-}
-func (f *fakeStore) CreatePost(context.Context, store.Post) (int64, error)   { return 0, nil }
-func (f *fakeStore) GetPost(_ context.Context, id int64) (store.Post, error) { return f.posts[id], nil }
-func (f *fakeStore) UpdatePostContent(_ context.Context, id int64, content, hashtags string) error {
-	f.updated[id] = [2]string{content, hashtags}
-	p := f.posts[id]
-	p.Content, p.Hashtags = content, hashtags
-	f.posts[id] = p
-	return nil
-}
-func (f *fakeStore) SetPostStatus(_ context.Context, id int64, s store.PostStatus) error {
-	f.statusSet[id] = s
-	return nil
-}
-func (f *fakeStore) MarkQueued(_ context.Context, id int64, extID string) error {
-	f.markedExtID[id] = extID
-	return nil
-}
-func (f *fakeStore) ListDrafts(context.Context) ([]store.PostWithEvent, error) { return f.drafts, nil }
-func (f *fakeStore) ListHistory(context.Context) ([]store.PostWithEvent, error) {
-	return f.history, nil
-}
-func (f *fakeStore) LastQueuedAt(context.Context) (*time.Time, error) { return f.lastQueued, nil }
-
-type fakePublisher struct {
-	called bool
-	id     string
+func TestSearchResultsEmptyState(t *testing.T) {
+	st := &webFakeStore{search: store.Search{ID: 1}, qualifying: nil}
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/search/1", nil))
+	if !strings.Contains(rr.Body.String(), "No qualifying matches") {
+		t.Error("empty state not rendered")
+	}
 }
 
-func (p *fakePublisher) Queue(context.Context, store.Post) (string, error) {
-	p.called = true
-	return p.id, nil
+func TestUploadRejectsUnreadableResume(t *testing.T) {
+	st := &webFakeStore{}
+	server := NewServer(st, fakeIngestor{err: resume.ErrUnreadable}, fakeActions{}, nil).Routes()
+
+	body, contentType := multipartResume(t, "cv.txt", "anything")
+	req := httptest.NewRequest(http.MethodPost, "/resume", body)
+	req.Header.Set("Content-Type", contentType)
+	rr := httptest.NewRecorder()
+	server.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for unreadable resume", rr.Code)
+	}
 }
 
-type fakeActions struct {
-	ticked      bool
-	regenerated int64
+func TestUploadRejectsUnsupportedFormat(t *testing.T) {
+	st := &webFakeStore{}
+	body, contentType := multipartResume(t, "photo.png", "binary")
+	req := httptest.NewRequest(http.MethodPost, "/resume", body)
+	req.Header.Set("Content-Type", contentType)
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for unsupported format", rr.Code)
+	}
 }
 
-func (a *fakeActions) Tick(context.Context) error { a.ticked = true; return nil }
-func (a *fakeActions) Regenerate(_ context.Context, id int64) error {
-	a.regenerated = id
-	return nil
+func TestSearchRedirectsToResults(t *testing.T) {
+	st := &webFakeStore{}
+	req := httptest.NewRequest(http.MethodPost, "/search", nil)
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, req)
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rr.Code)
+	}
+	if loc := rr.Header().Get("Location"); loc != "/search/7" {
+		t.Errorf("Location = %q, want /search/7", loc)
+	}
 }
 
-func do(t *testing.T, h http.Handler, method, target string, form url.Values) *httptest.ResponseRecorder {
+func TestSaveSettingsPersistsPreferences(t *testing.T) {
+	st := &webFakeStore{}
+	form := "required_salary_min=150000&work_location_pref=remote&willing_to_travel=on"
+	req := httptest.NewRequest(http.MethodPost, "/settings", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, req)
+
+	if st.savedPrefs.RequiredSalaryMin != 150000 || st.savedPrefs.WorkLocationPref != store.WorkRemote {
+		t.Errorf("saved prefs = %+v", st.savedPrefs)
+	}
+	if !st.savedPrefs.WillingToTravel {
+		t.Error("WillingToTravel not saved")
+	}
+}
+
+// multipartResume builds a multipart body carrying one resume file.
+func multipartResume(t *testing.T, filename, content string) (*bytes.Buffer, string) {
 	t.Helper()
-	var body *strings.Reader
-	if form != nil {
-		body = strings.NewReader(form.Encode())
-	} else {
-		body = strings.NewReader("")
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, err := mw.CreateFormFile("resume", filename)
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
 	}
-	req := httptest.NewRequest(method, target, body)
-	if form != nil {
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if _, err := io.WriteString(fw, content); err != nil {
+		t.Fatalf("write: %v", err)
 	}
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	return rec
-}
-
-// ---- tests ----
-
-func TestDashboardRendersDrafts(t *testing.T) {
-	st := newFakeStore()
-	st.drafts = []store.PostWithEvent{{
-		Post: store.Post{ID: 1, Content: "Shipped a delivery tool"},
-		Repo: "me/linker", EventType: store.EventCommit, EventTitle: "feat",
-	}}
-	srv := NewServer(st, &fakePublisher{}, &fakeActions{}, nil)
-	rec := do(t, srv.Routes(), http.MethodGet, "/", nil)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
-	body := rec.Body.String()
-	for _, want := range []string{"Shipped a delivery tool", "me/linker", "Approve", "post-1"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("dashboard missing %q", want)
-		}
-	}
-}
-
-func TestSaveUpdatesContent(t *testing.T) {
-	st := newFakeStore()
-	st.posts[1] = store.Post{ID: 1, EventID: 1}
-	st.events[1] = store.Event{Repo: "me/r", Type: store.EventCommit}
-	srv := NewServer(st, &fakePublisher{}, &fakeActions{}, nil)
-
-	form := url.Values{"content": {"edited body"}, "hashtags": {"#Edited"}}
-	rec := do(t, srv.Routes(), http.MethodPost, "/posts/1/save", form)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
-	if got := st.updated[1]; got[0] != "edited body" || got[1] != "#Edited" {
-		t.Errorf("UpdatePostContent got %v", got)
-	}
-	if !strings.Contains(rec.Body.String(), "edited body") {
-		t.Error("response should contain edited content")
-	}
-}
-
-func TestApproveQueues(t *testing.T) {
-	st := newFakeStore()
-	st.posts[2] = store.Post{ID: 2, EventID: 7, Content: "post"}
-	st.events[7] = store.Event{Repo: "me/r", Type: store.EventRelease}
-	pub := &fakePublisher{id: "buf_99"}
-	srv := NewServer(st, pub, &fakeActions{}, nil)
-
-	rec := do(t, srv.Routes(), http.MethodPost, "/posts/2/approve", nil)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
-	if !pub.called {
-		t.Error("publisher.Queue not called")
-	}
-	if st.markedExtID[2] != "buf_99" {
-		t.Errorf("MarkQueued external id = %q, want buf_99", st.markedExtID[2])
-	}
-	if !strings.Contains(rec.Body.String(), "queued") {
-		t.Error("response should show queued state")
-	}
-}
-
-func TestRejectSetsStatus(t *testing.T) {
-	st := newFakeStore()
-	srv := NewServer(st, &fakePublisher{}, &fakeActions{}, nil)
-	rec := do(t, srv.Routes(), http.MethodPost, "/posts/5/reject", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
-	if st.statusSet[5] != store.StatusRejected {
-		t.Errorf("status = %q, want rejected", st.statusSet[5])
-	}
-}
-
-func TestRegenerateInvokesAction(t *testing.T) {
-	st := newFakeStore()
-	st.posts[3] = store.Post{ID: 3, EventID: 1}
-	st.events[1] = store.Event{Repo: "me/r"}
-	act := &fakeActions{}
-	srv := NewServer(st, &fakePublisher{}, act, nil)
-	rec := do(t, srv.Routes(), http.MethodPost, "/posts/3/regenerate", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
-	if act.regenerated != 3 {
-		t.Errorf("Regenerate called with %d, want 3", act.regenerated)
-	}
-}
-
-func TestPollInvokesTick(t *testing.T) {
-	st := newFakeStore()
-	act := &fakeActions{}
-	srv := NewServer(st, &fakePublisher{}, act, nil)
-	rec := do(t, srv.Routes(), http.MethodPost, "/poll", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
-	if !act.ticked {
-		t.Error("Tick not called")
-	}
-}
-
-func TestHistoryRenders(t *testing.T) {
-	st := newFakeStore()
-	now := time.Now()
-	st.history = []store.PostWithEvent{{
-		Post: store.Post{ID: 1, Content: "Queued post body", Status: store.StatusQueued, QueuedAt: &now},
-		Repo: "me/r",
-	}}
-	srv := NewServer(st, &fakePublisher{}, &fakeActions{}, nil)
-	rec := do(t, srv.Routes(), http.MethodGet, "/history", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
-	if !strings.Contains(rec.Body.String(), "Queued post body") {
-		t.Error("history missing post body")
-	}
-}
-
-func TestBadIDReturns400(t *testing.T) {
-	srv := NewServer(newFakeStore(), &fakePublisher{}, &fakeActions{}, nil)
-	rec := do(t, srv.Routes(), http.MethodPost, "/posts/abc/save", nil)
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", rec.Code)
-	}
+	mw.Close()
+	return &buf, mw.FormDataContentType()
 }

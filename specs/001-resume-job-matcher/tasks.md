@@ -26,11 +26,11 @@
 
 **Purpose**: Branch, repurpose the repo off the old post-drafter domain, and scaffold new packages.
 
-- [ ] T001 Reconcile the working tree, then create branch `feature/resume-job-matcher` from a clean `main` (Article III; **P1**): commit/stash/discard the current uncommitted changes to `internal/web/layout.templ`, `internal/web/server.go`, `internal/web/server_test.go`, and `CHANGELOG.md` on `fix/dashboard-stylesheet-not-rendering` first, since T012/T025 rewrite those files. Do not work on `main`
-- [ ] T002 [P] Remove obsolete domain packages `internal/github/`, `internal/buffer/`, `internal/persona/` and all references to them in `cmd/linker/main.go`, `internal/app/app.go`, `internal/orchestrator/orchestrator.go`
+- [x] T001 Reconcile the working tree, then create branch `feature/resume-job-matcher` from a clean `main` (Article III; **P1**): commit/stash/discard the current uncommitted changes to `internal/web/layout.templ`, `internal/web/server.go`, `internal/web/server_test.go`, and `CHANGELOG.md` on `fix/dashboard-stylesheet-not-rendering` first, since T012/T025 rewrite those files. Do not work on `main`
+- [x] T002 [P] Remove obsolete domain packages `internal/github/`, `internal/buffer/`, `internal/persona/` and all references to them in `cmd/linker/main.go`, `internal/app/app.go`, `internal/orchestrator/orchestrator.go`
 - [ ] T003 [P] Add dependencies `github.com/playwright-community/playwright-go` and `github.com/ledongthuc/pdf` to `go.mod`; run `go mod tidy`
-- [ ] T004 [P] Update `.env.example` and `internal/config/config.go`: remove `GITHUB_*`/`BUFFER_*`, add `ADZUNA_APP_ID`/`ADZUNA_APP_KEY`, source-enable flags; update `internal/config/config_test.go`
-- [ ] T005 [P] Scaffold empty package dirs with purpose-comment doc files: `internal/resume/`, `internal/jobsource/`, `internal/scoring/`, `internal/documents/`
+- [x] T004 [P] Update `.env.example` and `internal/config/config.go`: remove `GITHUB_*`/`BUFFER_*`, add `ADZUNA_APP_ID`/`ADZUNA_APP_KEY`, source-enable flags; update `internal/config/config_test.go`
+- [x] T005 [P] Scaffold empty package dirs with purpose-comment doc files: `internal/resume/`, `internal/jobsource/`, `internal/scoring/`, `internal/documents/`
 
 ---
 
@@ -40,15 +40,15 @@
 
 **⚠️ CRITICAL**: No user story work begins until this phase is complete.
 
-- [ ] T006 Extend `internal/store/schema.sql` with tables `resumes`, `search_preferences`, `searches`, `job_openings`, `match_results`, `generated_documents`, `selections` per `data-model.md`
-- [ ] T007 [P] Add Go structs for all seven entities in `internal/store/models.go`
-- [ ] T008 Implement pgx CRUD for each entity in `internal/store/store.go`, with `pgxmock` unit tests in `internal/store/store_test.go` (write failing tests first)
-- [ ] T009 [P] Define `Source` interface, `Query`, `RawOpening` in `internal/jobsource/source.go` per `contracts/jobsource.md`
-- [ ] T010 Implement source registry + canonical-key de-duplication in `internal/jobsource/registry.go` with failing-first unit tests in `internal/jobsource/registry_test.go` (FR-014, SC-007)
-- [ ] T011 [P] Define named scoring constants (`QualifyingScoreThreshold`=70, `EagerDocumentTopN`=3, gate penalties) in `internal/scoring/constants.go` per `contracts/scoring.md`
-- [ ] T011a [P] Define a mockable Claude/LLM client interface (`Complete`/`Structured` methods) plus an in-memory fake in `internal/claude/client.go` and `internal/claude/fake.go`, repurposing the existing `internal/claude` package, so all LLM-dependent unit tests (scoring, resume profile, documents) run 100% mocked in <10ms (**N1**, Article V)
-- [ ] T012 [P] Update `internal/web/layout.templ` for the matcher and register the chi routes from `contracts/http-routes.md` in `internal/web/server.go` with stub handlers
-- [ ] T013 Repurpose `internal/orchestrator/orchestrator.go` with a `RunSearch` entrypoint skeleton (discover→dedup→gate→score→persist→gen top-3), on-demand and scheduler-free (FR-020)
+- [x] T006 Extend `internal/store/schema.sql` with tables `resumes`, `search_preferences`, `searches`, `job_openings`, `match_results`, `generated_documents`, `selections` per `data-model.md`
+- [x] T007 [P] Add Go structs for all seven entities in `internal/store/models.go`
+- [x] T008 Implement pgx CRUD for each entity in `internal/store/store.go`, with `pgxmock` unit tests in `internal/store/store_test.go` (write failing tests first)
+- [x] T009 [P] Define `Source` interface, `Query`, `RawOpening` in `internal/jobsource/source.go` per `contracts/jobsource.md`
+- [x] T010 Implement source registry + canonical-key de-duplication in `internal/jobsource/registry.go` with failing-first unit tests in `internal/jobsource/registry_test.go` (FR-014, SC-007)
+- [x] T011 [P] Define named scoring constants (`QualifyingScoreThreshold`=70, `EagerDocumentTopN`=3, gate penalties) in `internal/scoring/constants.go` per `contracts/scoring.md`
+- [x] T011a [P] Define a mockable Claude/LLM client interface (`Complete`/`Structured` methods) plus an in-memory fake in `internal/claude/client.go` and `internal/claude/fake.go`, repurposing the existing `internal/claude` package, so all LLM-dependent unit tests (scoring, resume profile, documents) run 100% mocked in <10ms (**N1**, Article V)
+- [x] T012 [P] Update `internal/web/layout.templ` for the matcher and register the chi routes from `contracts/http-routes.md` in `internal/web/server.go` with stub handlers
+- [x] T013 Repurpose `internal/orchestrator/orchestrator.go` with a `RunSearch` entrypoint skeleton (discover→dedup→gate→score→persist→gen top-3), on-demand and scheduler-free (FR-020)
 
 **Checkpoint**: Foundation ready — user stories can begin.
 
@@ -62,25 +62,25 @@
 
 ### Tests for User Story 1 (write first, must FAIL) ⚠️
 
-- [ ] T014 [P] [US1] Unit tests for the deterministic gate (salary + work-location gates fire, travel/relocate soft only, clamp 1–100) in `internal/scoring/gate_test.go`
-- [ ] T015 [P] [US1] Unit tests for resume extraction (PDF/DOCX/TXT → text; empty/garbage rejected) in `internal/resume/parser_test.go`
-- [ ] T016 [P] [US1] Integration test mapping an Adzuna JSON fixture to `RawOpening` in `internal/jobsource/aggregator_test.go`
-- [ ] T017 [P] [US1] Integration test `RunSearch` excludes <70 results and records `source_health` in `internal/orchestrator/orchestrator_test.go`
-- [ ] T018 [P] [US1] Route test `GET /search/{id}` never renders a sub-70 result and shows source health in `internal/web/server_test.go`
+- [x] T014 [P] [US1] Unit tests for the deterministic gate (salary + work-location gates fire, travel/relocate soft only, clamp 1–100) in `internal/scoring/gate_test.go`
+- [x] T015 [P] [US1] Unit tests for resume extraction (PDF/DOCX/TXT → text; empty/garbage rejected) in `internal/resume/parser_test.go`
+- [x] T016 [P] [US1] Integration test mapping an Adzuna JSON fixture to `RawOpening` in `internal/jobsource/aggregator_test.go`
+- [x] T017 [P] [US1] Integration test `RunSearch` excludes <70 results and records `source_health` in `internal/orchestrator/orchestrator_test.go`
+- [x] T018 [P] [US1] Route test `GET /search/{id}` never renders a sub-70 result and shows source health in `internal/web/server_test.go`
 
 ### Implementation for User Story 1
 
-- [ ] T019 [P] [US1] Implement PDF/DOCX/TXT text extraction in `internal/resume/parser.go` (ledongthuc/pdf; zip+xml for docx)
-- [ ] T020 [US1] Implement LLM structured-profile extraction (skills/roles/dates) in `internal/resume/profile.go` (depends on T019)
-- [ ] T021 [P] [US1] Implement `ApplyGates` deterministic gating in `internal/scoring/gate.go` (FR-005a)
-- [ ] T022 [US1] Implement LLM `ScoreFit` + score composition/clamp + explanation in `internal/scoring/scorer.go` (depends on T011, T021; FR-004, FR-015)
-- [ ] T023 [P] [US1] Implement the Adzuna aggregator adapter in `internal/jobsource/aggregator.go` (FR-003)
-- [ ] T024 [US1] Implement `RunSearch` (discover→dedup→gate→score→persist, source-health capture) in `internal/orchestrator/orchestrator.go` (depends on T008, T010, T022, T023)
-- [ ] T024a [US1] On re-run, reuse previously scored openings for the same `canonical_key` rather than re-scoring identical postings, while still surfacing newly discovered openings, in `internal/orchestrator/orchestrator.go` with a failing-first test in `internal/orchestrator/orchestrator_test.go` (**C1**/FR-025)
-- [ ] T025 [US1] Implement handlers `GET /` (dashboard home: active-resume status + latest results, **C3**), `POST /resume` (replace active resume while keeping prior searches tied to the old resume version, **U1**/FR-001a), `GET/POST /settings`, `POST /search`, `GET /search/{id}` in `internal/web/server.go` (depends on T024; FR-001, FR-002, FR-006, FR-009, FR-016, FR-018)
-- [ ] T026 [P] [US1] Implement the consolidated results view (scores, explanations, source health, empty "no qualifying matches" state) in `internal/web/results.templ`
-- [ ] T027 [P] [US1] Implement the preferences/settings view in `internal/web/settings.templ`
-- [ ] T028 [US1] Wire `cmd/linker/main.go`: config → store → sources → orchestrator → web (depends on T024, T025)
+- [x] T019 [P] [US1] Implement PDF/DOCX/TXT text extraction in `internal/resume/parser.go` (ledongthuc/pdf; zip+xml for docx)
+- [x] T020 [US1] Implement LLM structured-profile extraction (skills/roles/dates) in `internal/resume/profile.go` (depends on T019)
+- [x] T021 [P] [US1] Implement `ApplyGates` deterministic gating in `internal/scoring/gate.go` (FR-005a)
+- [x] T022 [US1] Implement LLM `ScoreFit` + score composition/clamp + explanation in `internal/scoring/scorer.go` (depends on T011, T021; FR-004, FR-015)
+- [x] T023 [P] [US1] Implement the Adzuna aggregator adapter in `internal/jobsource/aggregator.go` (FR-003)
+- [x] T024 [US1] Implement `RunSearch` (discover→dedup→gate→score→persist, source-health capture) in `internal/orchestrator/orchestrator.go` (depends on T008, T010, T022, T023)
+- [x] T024a [US1] On re-run, reuse previously scored openings for the same `canonical_key` rather than re-scoring identical postings, while still surfacing newly discovered openings, in `internal/orchestrator/orchestrator.go` with a failing-first test in `internal/orchestrator/orchestrator_test.go` (**C1**/FR-025)
+- [x] T025 [US1] Implement handlers `GET /` (dashboard home: active-resume status + latest results, **C3**), `POST /resume` (replace active resume while keeping prior searches tied to the old resume version, **U1**/FR-001a), `GET/POST /settings`, `POST /search`, `GET /search/{id}` in `internal/web/server.go` (depends on T024; FR-001, FR-002, FR-006, FR-009, FR-016, FR-018)
+- [x] T026 [P] [US1] Implement the consolidated results view (scores, explanations, source health, empty "no qualifying matches" state) in `internal/web/results.templ`
+- [x] T027 [P] [US1] Implement the preferences/settings view in `internal/web/settings.templ`
+- [x] T028 [US1] Wire `cmd/linker/main.go`: config → store → sources → orchestrator → web (depends on T024, T025)
 
 **Checkpoint**: MVP — a user can go from resume+preferences to a scored, de-duplicated, qualifying-only results view.
 
