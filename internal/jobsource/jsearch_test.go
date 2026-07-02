@@ -9,30 +9,34 @@ import (
 
 const jsearchFixture = `{
   "status": "OK",
-  "data": [
-    {
-      "job_title": "Senior Backend Engineer",
-      "employer_name": "Acme",
-      "job_apply_link": "https://www.linkedin.com/jobs/view/123",
-      "job_description": "Build Go services.",
-      "job_is_remote": true,
-      "job_city": "New York",
-      "job_state": "NY",
-      "job_country": "US",
-      "job_min_salary": 150000,
-      "job_max_salary": 200000,
-      "job_salary_period": "YEAR"
-    },
-    {
-      "job_title": "Contractor",
-      "employer_name": "Beta",
-      "job_apply_link": "https://x",
-      "job_is_remote": false,
-      "job_min_salary": 60,
-      "job_max_salary": 80,
-      "job_salary_period": "HOUR"
-    }
-  ]
+  "data": {
+    "jobs": [
+      {
+        "job_title": "Senior Backend Engineer",
+        "employer_name": "Acme",
+        "job_apply_link": "https://www.linkedin.com/jobs/view/123",
+        "job_description": "Build Go services.",
+        "job_is_remote": true,
+        "job_city": "New York",
+        "job_state": "NY",
+        "job_country": "US",
+        "job_min_salary": 150000,
+        "job_max_salary": 200000,
+        "job_salary_period": "YEAR"
+      },
+      {
+        "job_title": "Contractor",
+        "employer_name": "Beta",
+        "job_apply_link": "https://x",
+        "job_is_remote": true,
+        "job_location": "Anywhere",
+        "job_min_salary": 60,
+        "job_max_salary": 80,
+        "job_salary_period": "HOUR"
+      }
+    ],
+    "cursor": "abc"
+  }
 }`
 
 func TestJSearchMapsResults(t *testing.T) {
@@ -68,6 +72,10 @@ func TestJSearchMapsResults(t *testing.T) {
 	// Hourly rates must NOT be reported as an annual salary.
 	if out[1].SalaryMin != 0 || out[1].SalaryMax != 0 {
 		t.Errorf("hourly salary leaked as annual: %+v", out[1])
+	}
+	// job_location is used when city/state/country are absent (remote roles).
+	if out[1].Location != "Anywhere" {
+		t.Errorf("Location = %q, want Anywhere (job_location fallback)", out[1].Location)
 	}
 
 	// The API key + host headers must be sent.

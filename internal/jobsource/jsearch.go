@@ -42,19 +42,27 @@ func NewJSearch(apiKey string) *JSearch {
 // Name identifies this source in health reporting.
 func (j *JSearch) Name() string { return "jsearch" }
 
+// jsearchJob is one posting in the JSearch response.
+type jsearchJob struct {
+	JobTitle        string  `json:"job_title"`
+	EmployerName    string  `json:"employer_name"`
+	JobApplyLink    string  `json:"job_apply_link"`
+	JobDescription  string  `json:"job_description"`
+	JobIsRemote     bool    `json:"job_is_remote"`
+	JobLocation     string  `json:"job_location"`
+	JobCity         string  `json:"job_city"`
+	JobState        string  `json:"job_state"`
+	JobCountry      string  `json:"job_country"`
+	JobMinSalary    float64 `json:"job_min_salary"`
+	JobMaxSalary    float64 `json:"job_max_salary"`
+	JobSalaryPeriod string  `json:"job_salary_period"`
+}
+
+// jsearchResponse mirrors the /search-v2 envelope, whose data is an object
+// wrapping the jobs array (the older /search returned data as a bare array).
 type jsearchResponse struct {
-	Data []struct {
-		JobTitle        string  `json:"job_title"`
-		EmployerName    string  `json:"employer_name"`
-		JobApplyLink    string  `json:"job_apply_link"`
-		JobDescription  string  `json:"job_description"`
-		JobIsRemote     bool    `json:"job_is_remote"`
-		JobCity         string  `json:"job_city"`
-		JobState        string  `json:"job_state"`
-		JobCountry      string  `json:"job_country"`
-		JobMinSalary    float64 `json:"job_min_salary"`
-		JobMaxSalary    float64 `json:"job_max_salary"`
-		JobSalaryPeriod string  `json:"job_salary_period"`
+	Data struct {
+		Jobs []jsearchJob `json:"jobs"`
 	} `json:"data"`
 }
 
@@ -88,17 +96,21 @@ func (j *JSearch) Discover(ctx context.Context, query Query) ([]RawOpening, erro
 		return nil, fmt.Errorf("jsearch decode: %w", err)
 	}
 
-	openings := make([]RawOpening, 0, len(parsed.Data))
-	for _, job := range parsed.Data {
+	openings := make([]RawOpening, 0, len(parsed.Data.Jobs))
+	for _, job := range parsed.Data.Jobs {
 		workLocation := "unknown"
 		if job.JobIsRemote {
 			workLocation = "remote"
+		}
+		location := joinLocation(job.JobCity, job.JobState, job.JobCountry)
+		if location == "" {
+			location = job.JobLocation // e.g. "Anywhere" for remote roles
 		}
 		salaryMin, salaryMax := annualSalary(job.JobMinSalary, job.JobMaxSalary, job.JobSalaryPeriod)
 		openings = append(openings, RawOpening{
 			Title:            job.JobTitle,
 			Employer:         job.EmployerName,
-			Location:         joinLocation(job.JobCity, job.JobState, job.JobCountry),
+			Location:         location,
 			Description:      truncate(job.JobDescription, 4000),
 			OriginalURL:      job.JobApplyLink,
 			WorkLocationType: workLocation,

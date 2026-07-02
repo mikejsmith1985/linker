@@ -103,6 +103,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - JSearch now calls the versioned `/search-v2` endpoint; the old `/search` path
   returns 404 ("endpoint does not exist") and left the source non-functional.
+- Parse the `/search-v2` response envelope, whose `data` is an object wrapping a
+  `jobs` array (the old `/search` returned `data` as a bare array). Without this
+  the source decoded to an error and reported "failed" on every search. Also map
+  `job_location` (e.g. "Anywhere") when city/state/country are absent.
 - Pass `RAPIDAPI_KEY` through `docker-compose.yml` to the app container so the
   JSearch source activates under docker compose.
 - Pre-push hook (`.forge/hooks/pre-push` and `.forge/hooks/pre-push.ps1`) no
