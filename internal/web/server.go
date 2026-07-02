@@ -71,6 +71,8 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/job/{id}", s.handleJob)
 	r.Post("/job/{id}/documents/{docType}", s.handleSaveDocument)
 	r.Get("/job/{id}/documents/{docType}/download", s.handleDownloadDocument)
+	r.Post("/job/{id}/select", s.handleSelect)
+	r.Post("/job/{id}/open", s.handleOpenPosting)
 	return r
 }
 
@@ -269,6 +271,47 @@ func (s *Server) handleDownloadDocument(w http.ResponseWriter, r *http.Request) 
 	default:
 		writeAttachment(w, base+".txt", "text/plain; charset=utf-8", []byte(doc.ContentMarkdown))
 	}
+}
+
+// handleSelect records that the user wants to pursue this opening (FR-011).
+func (s *Server) handleSelect(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.idParam(w, r)
+	if !ok {
+		return
+	}
+	if err := s.store.UpsertSelection(r.Context(), id, false); err != nil {
+		s.fail(w, "record selection", err)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/job/%d", id), http.StatusSeeOther)
+}
+
+// handleOpenPosting records that the posting was opened for manual submission
+// and redirects the user to the original posting. The system submits nothing on
+// the user's behalf (FR-012, FR-013, SC-006) — it only records and redirects.
+func (s *Server) handleOpenPosting(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.idParam(w, r)
+	if !ok {
+		return
+	}
+	match, err := s.store.GetMatchWithOpening(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "match not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		s.fail(w, "load match", err)
+		return
+	}
+	if strings.TrimSpace(match.Opening.OriginalURL) == "" {
+		http.Error(w, "this posting is no longer reachable", http.StatusGone)
+		return
+	}
+	if err := s.store.UpsertSelection(r.Context(), id, true); err != nil {
+		s.fail(w, "record open", err)
+		return
+	}
+	http.Redirect(w, r, match.Opening.OriginalURL, http.StatusSeeOther)
 }
 
 // resumeFacts returns the active resume's raw text (the no-fabrication source),

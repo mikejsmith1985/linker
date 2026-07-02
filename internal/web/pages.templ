@@ -106,7 +106,9 @@ templ matchCard(m store.MatchWithOpening) {
 		<p class="explain">{ m.ScoreExplanation }</p>
 		<div class="actions">
 			<a class="primary btn" href={ templ.SafeURL(jobPath(m.ID)) }>View &amp; tailor</a>
-			<a class="src" href={ templ.SafeURL(m.Opening.OriginalURL) } target="_blank" rel="noopener">Open posting</a>
+			<form method="post" action={ templ.SafeURL(jobPath(m.ID) + "/open") }>
+				<button type="submit" class="secondary">Open posting</button>
+			</form>
 		</div>
 	</section>
 }

@@ -16,8 +16,14 @@ templ Job(match store.MatchWithOpening, tailored store.GeneratedDocument, cover 
 			<p class="hint">{ match.Opening.Location } · { salaryText(match.Opening) } · via { sourcesText(match.Opening) }</p>
 			<p class="explain">{ match.ScoreExplanation }</p>
 			<div class="actions">
-				<a class="src" href={ templ.SafeURL(match.Opening.OriginalURL) } target="_blank" rel="noopener">Open posting to apply manually</a>
+				<form method="post" action={ templ.SafeURL(jobPath(match.ID) + "/select") }>
+					<button type="submit" class="secondary">Select to pursue</button>
+				</form>
+				<form method="post" action={ templ.SafeURL(jobPath(match.ID) + "/open") }>
+					<button type="submit" class="primary">Open posting to apply manually</button>
+				</form>
 			</div>
+			<p class="hint">Opening the posting takes you to the original listing to submit your tailored resume and cover letter yourself — the app never submits anything for you.</p>
 		</section>
 		@documentCard(match.ID, tailored)
 		@documentCard(match.ID, cover)

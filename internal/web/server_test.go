@@ -16,14 +16,17 @@ import (
 
 // webFakeStore implements store.Store for handler tests.
 type webFakeStore struct {
-	search       store.Search
-	qualifying   []store.MatchWithOpening
-	listCalled   bool
-	savedPrefs   store.Preferences
-	activeErr    error
-	match        store.MatchWithOpening
-	doc          store.GeneratedDocument
-	savedContent string
+	search         store.Search
+	qualifying     []store.MatchWithOpening
+	listCalled     bool
+	savedPrefs     store.Preferences
+	activeErr      error
+	match          store.MatchWithOpening
+	doc            store.GeneratedDocument
+	savedContent   string
+	selectRecorded bool
+	openedRecorded bool
+	openedFlag     bool
 }
 
 func (f *webFakeStore) RunMigrations(context.Context) error                     { return nil }
@@ -74,7 +77,15 @@ func (f *webFakeStore) UpdateDocumentContent(_ context.Context, _ int64, content
 	f.savedContent = content
 	return nil
 }
-func (f *webFakeStore) UpsertSelection(context.Context, int64, bool) error { return nil }
+func (f *webFakeStore) UpsertSelection(_ context.Context, _ int64, opened bool) error {
+	f.openedFlag = opened
+	if opened {
+		f.openedRecorded = true
+	} else {
+		f.selectRecorded = true
+	}
+	return nil
+}
 
 // fakeActions records RunSearch calls.
 type fakeActions struct{ id int64 }
@@ -278,6 +289,59 @@ func TestDownloadDocumentPDF(t *testing.T) {
 	}
 	if !strings.HasPrefix(rr.Body.String(), "%PDF") {
 		t.Error("body is not a PDF")
+	}
+}
+
+func TestOpenPostingRecordsAndRedirectsToExternalURL(t *testing.T) {
+	st := &webFakeStore{
+		match: store.MatchWithOpening{
+			MatchResult: store.MatchResult{ID: 5, Score: 88, IsQualifying: true},
+			Opening:     store.JobOpening{Title: "Engineer", OriginalURL: "https://boards.example/job/5"},
+		},
+	}
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/job/5/open", nil))
+
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rr.Code)
+	}
+	// The user is taken to the ORIGINAL posting — the system submits nothing.
+	if loc := rr.Header().Get("Location"); loc != "https://boards.example/job/5" {
+		t.Errorf("Location = %q, want the external posting URL", loc)
+	}
+	// The open was recorded.
+	if !st.openedRecorded {
+		t.Error("open was not recorded (was_posting_opened)")
+	}
+	if st.openedFlag != true {
+		t.Error("UpsertSelection should be called with opened=true")
+	}
+}
+
+func TestSelectRecordsIntentWithoutOpening(t *testing.T) {
+	st := &webFakeStore{}
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/job/5/select", nil))
+
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rr.Code)
+	}
+	if !st.selectRecorded || st.openedFlag {
+		t.Error("select should record intent with opened=false")
+	}
+}
+
+func TestOpenPostingWithDeadURLReturnsGone(t *testing.T) {
+	st := &webFakeStore{
+		match: store.MatchWithOpening{
+			MatchResult: store.MatchResult{ID: 5, IsQualifying: true},
+			Opening:     store.JobOpening{Title: "Engineer", OriginalURL: ""},
+		},
+	}
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/job/5/open", nil))
+	if rr.Code != http.StatusGone {
+		t.Errorf("status = %d, want 410 for an unreachable posting", rr.Code)
 	}
 }
 

@@ -57,6 +57,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     it silently (`internal/documents`). Documents are generated eagerly for the
     top 3 scores and on first open (then cached) for the rest, and are reviewable,
     editable, and downloadable as PDF/TXT/Markdown from the job detail view.
+  - Select an opening to pursue and open the original posting for manual
+    submission: the app records the selection and that the posting was opened,
+    then redirects to the live listing. It never submits an application on the
+    user's behalf; an unreachable posting reports "no longer reachable"
+    (`internal/web`; FR-011/012/013).
 
 ### Fixed
 - Pre-push hook (`.forge/hooks/pre-push` and `.forge/hooks/pre-push.ps1`) no

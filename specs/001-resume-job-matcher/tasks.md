@@ -117,12 +117,12 @@
 
 ### Tests for User Story 3 (write first, must FAIL) ⚠️
 
-- [ ] T036 [P] [US3] Route test: `POST /job/{matchId}/open` records `was_posting_opened`, returns the external URL, and makes zero submission calls, in `internal/web/server_test.go` (FR-013, SC-006)
+- [x] T036 [P] [US3] Route test: `POST /job/{matchId}/open` records `was_posting_opened`, returns the external URL, and makes zero submission calls, in `internal/web/server_test.go` (FR-013, SC-006)
 
 ### Implementation for User Story 3
 
-- [ ] T037 [US3] Implement `POST /job/{matchId}/select` and `POST /job/{matchId}/open` handlers in `internal/web/server.go` (depends on T008; FR-011, FR-012)
-- [ ] T038 [US3] Add select/open controls to `internal/web/job.templ` and `internal/web/results.templ`
+- [x] T037 [US3] Implement `POST /job/{matchId}/select` and `POST /job/{matchId}/open` handlers in `internal/web/server.go` (depends on T008; FR-011, FR-012)
+- [x] T038 [US3] Add select/open controls to `internal/web/job.templ` and `internal/web/results.templ`
 
 **Checkpoint**: US1–US3 independently functional.
 
