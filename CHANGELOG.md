@@ -67,6 +67,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     discovered match. A URL that cannot be fetched or is not a job posting fails
     on its own without breaking the batch (`internal/jobsource` URL source;
     `POST /search/urls`; FR-021).
+  - Opt-in Playwright browser source for boards without a permitted API
+    (including LinkedIn). It is off by default and refuses to run until the user
+    both enables it (`ENABLE_BROWSER_SOURCE`) and records an explicit
+    terms-of-service / account-ban risk acknowledgment in preferences; the
+    settings form rejects enabling it without the acknowledgment (`internal/jobsource`
+    browser adapter; FR-022/023). Requires the Playwright browser binaries.
+  - Rewrote the README for the job matcher and documented the browser-automation
+    opt-in and `playwright install` step.
 
 ### Fixed
 - Pre-push hook (`.forge/hooks/pre-push` and `.forge/hooks/pre-push.ps1`) no

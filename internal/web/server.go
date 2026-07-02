@@ -136,12 +136,24 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not read form", http.StatusBadRequest)
 		return
 	}
+	ack := r.FormValue("browser_automation_ack") != ""
+	enableBrowser := r.FormValue("enable_browser") != ""
+	// Enabling the browser source is refused without the risk acknowledgment (FR-023).
+	if enableBrowser && !ack {
+		http.Error(w, "enabling browser automation requires acknowledging the terms-of-service and account-ban risk", http.StatusBadRequest)
+		return
+	}
+
 	prefs := store.Preferences{
-		RequiredSalaryMin: atoiOrZero(r.FormValue("required_salary_min")),
-		SalaryCurrency:    "USD",
-		WorkLocationPref:  parseWorkLocation(r.FormValue("work_location_pref")),
-		WillingToTravel:   r.FormValue("willing_to_travel") != "",
-		WillingToRelocate: r.FormValue("willing_to_relocate") != "",
+		RequiredSalaryMin:    atoiOrZero(r.FormValue("required_salary_min")),
+		SalaryCurrency:       "USD",
+		WorkLocationPref:     parseWorkLocation(r.FormValue("work_location_pref")),
+		WillingToTravel:      r.FormValue("willing_to_travel") != "",
+		WillingToRelocate:    r.FormValue("willing_to_relocate") != "",
+		BrowserAutomationAck: ack,
+	}
+	if enableBrowser && ack {
+		prefs.EnabledSources = []string{"browser"}
 	}
 	if _, err := s.store.SavePreferences(r.Context(), prefs); err != nil {
 		s.fail(w, "save preferences", err)
@@ -481,6 +493,16 @@ func docTypeLabel(docType store.DocType) string {
 
 func joinFlags(flags []string) string { return strings.Join(flags, ", ") }
 
+// browserEnabled reports whether the browser source is in the enabled set.
+func browserEnabled(prefs store.Preferences) bool {
+	for _, name := range prefs.EnabledSources {
+		if name == "browser" {
+			return true
+		}
+	}
+	return false
+}
+
 // splitURLs parses a textarea of pasted URLs separated by newlines, spaces, or
 // commas into a clean list.
 func splitURLs(raw string) []string {
@@ -529,4 +551,6 @@ a.primary.btn { color:#fff; }
 a.secondary.btn { color:var(--ink); }
 textarea { width:100%; background:#0d0f14; color:var(--ink); border:1px solid #2a2e38; border-radius:8px; padding:.7rem; font:ui-monospace,monospace; font-size:.85rem; resize:vertical; }
 .warn { background:rgba(239,68,68,.12); border:1px solid var(--danger); color:#fca5a5; padding:.6rem .8rem; border-radius:8px; }
+.danger-zone { border:1px solid var(--danger); border-radius:8px; padding:.5rem .8rem; margin:1rem 0; }
+.danger-zone legend { color:var(--danger); padding:0 .4rem; }
 `

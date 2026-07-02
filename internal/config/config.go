@@ -19,6 +19,11 @@ type Config struct {
 	AdzunaAppID  string
 	AdzunaAppKey string
 
+	// EnableBrowserSource turns on the opt-in Playwright browser source. It is
+	// off by default; even when on, the source still refuses to run until the
+	// user records the risk acknowledgment in preferences.
+	EnableBrowserSource bool
+
 	HTTPAddr string
 }
 
@@ -36,12 +41,13 @@ const (
 // present but malformed; missing optional values fall back to defaults.
 func Load(getenv Getenv) (Config, error) {
 	cfg := Config{
-		DatabaseURL:     getenv("DATABASE_URL"),
-		AnthropicAPIKey: getenv("ANTHROPIC_API_KEY"),
-		ClaudeModel:     firstNonEmpty(getenv("CLAUDE_MODEL"), defaultClaudeModel),
-		AdzunaAppID:     getenv("ADZUNA_APP_ID"),
-		AdzunaAppKey:    getenv("ADZUNA_APP_KEY"),
-		HTTPAddr:        firstNonEmpty(getenv("HTTP_ADDR"), defaultHTTPAddr),
+		DatabaseURL:         getenv("DATABASE_URL"),
+		AnthropicAPIKey:     getenv("ANTHROPIC_API_KEY"),
+		ClaudeModel:         firstNonEmpty(getenv("CLAUDE_MODEL"), defaultClaudeModel),
+		AdzunaAppID:         getenv("ADZUNA_APP_ID"),
+		AdzunaAppKey:        getenv("ADZUNA_APP_KEY"),
+		EnableBrowserSource: strings.TrimSpace(getenv("ENABLE_BROWSER_SOURCE")) != "",
+		HTTPAddr:            firstNonEmpty(getenv("HTTP_ADDR"), defaultHTTPAddr),
 	}
 	return cfg, nil
 }

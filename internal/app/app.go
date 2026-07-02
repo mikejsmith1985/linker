@@ -50,7 +50,18 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	ingestor := resume.NewService(llm, st)
 	scorer := scoring.NewScorer(llm)
 	docService := documents.NewService(documents.NewGenerator(llm), st)
-	registry := jobsource.NewRegistry(buildSources(cfg)...)
+
+	sources := buildSources(cfg)
+	if cfg.EnableBrowserSource {
+		// The browser source self-gates on the user's saved acknowledgment, read
+		// fresh at each search so toggling it in preferences takes effect.
+		ackProvider := func() bool {
+			prefs, err := st.GetPreferences(context.Background())
+			return err == nil && prefs.BrowserAutomationAck
+		}
+		sources = append(sources, jobsource.NewBrowser(ackProvider, jobsource.NewPlaywrightRunner()))
+	}
+	registry := jobsource.NewRegistry(sources...)
 	urlFactory := func(urls []string) orchestrator.Discoverer {
 		return jobsource.NewRegistry(jobsource.NewURLPaste(urls, llm))
 	}

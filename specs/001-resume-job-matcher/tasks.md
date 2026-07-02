@@ -28,7 +28,7 @@
 
 - [x] T001 Reconcile the working tree, then create branch `feature/resume-job-matcher` from a clean `main` (Article III; **P1**): commit/stash/discard the current uncommitted changes to `internal/web/layout.templ`, `internal/web/server.go`, `internal/web/server_test.go`, and `CHANGELOG.md` on `fix/dashboard-stylesheet-not-rendering` first, since T012/T025 rewrite those files. Do not work on `main`
 - [x] T002 [P] Remove obsolete domain packages `internal/github/`, `internal/buffer/`, `internal/persona/` and all references to them in `cmd/linker/main.go`, `internal/app/app.go`, `internal/orchestrator/orchestrator.go`
-- [ ] T003 [P] Add dependencies `github.com/playwright-community/playwright-go` and `github.com/ledongthuc/pdf` to `go.mod`; run `go mod tidy`
+- [x] T003 [P] Add dependencies `github.com/playwright-community/playwright-go` and `github.com/ledongthuc/pdf` to `go.mod`; run `go mod tidy`
 - [x] T004 [P] Update `.env.example` and `internal/config/config.go`: remove `GITHUB_*`/`BUFFER_*`, add `ADZUNA_APP_ID`/`ADZUNA_APP_KEY`, source-enable flags; update `internal/config/config_test.go`
 - [x] T005 [P] Scaffold empty package dirs with purpose-comment doc files: `internal/resume/`, `internal/jobsource/`, `internal/scoring/`, `internal/documents/`
 
@@ -155,14 +155,14 @@
 
 ### Tests for User Story 5 (write first, must FAIL) ⚠️
 
-- [ ] T042 [P] [US5] Unit test: browser adapter returns `ErrAcknowledgmentRequired` when the ack flag is false, in `internal/jobsource/browser_test.go` (FR-023)
-- [ ] T043 [P] [US5] Route test: `POST /settings` rejects enabling the browser source without the ack checkbox, in `internal/web/server_test.go`
+- [x] T042 [P] [US5] Unit test: browser adapter returns `ErrAcknowledgmentRequired` when the ack flag is false, in `internal/jobsource/browser_test.go` (FR-023)
+- [x] T043 [P] [US5] Route test: `POST /settings` rejects enabling the browser source without the ack checkbox, in `internal/web/server_test.go`
 
 ### Implementation for User Story 5
 
-- [ ] T044 [US5] Implement the gated Playwright browser adapter in `internal/jobsource/browser.go` (FR-022; default-off)
-- [ ] T045 [US5] Enforce the acknowledgment in `POST /settings` and add the risk-acknowledgment UI to `internal/web/settings.templ` (FR-023)
-- [ ] T046 [US5] Document the `playwright install` browser-binary setup step in `README.md`
+- [x] T044 [US5] Implement the gated Playwright browser adapter in `internal/jobsource/browser.go` (FR-022; default-off)
+- [x] T045 [US5] Enforce the acknowledgment in `POST /settings` and add the risk-acknowledgment UI to `internal/web/settings.templ` (FR-023)
+- [x] T046 [US5] Document the `playwright install` browser-binary setup step in `README.md`
 
 **Checkpoint**: All five stories independently functional.
 

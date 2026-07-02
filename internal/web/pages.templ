@@ -63,6 +63,22 @@ templ Settings(prefs store.Preferences) {
 				<label class="check">
 					<input type="checkbox" name="willing_to_relocate" checked?={ prefs.WillingToRelocate }/> Willing to relocate
 				</label>
+				<fieldset class="danger-zone">
+					<legend>Browser automation (advanced, opt-in)</legend>
+					<p class="warn">
+						Automated browsing of sites without a permitted API (including LinkedIn)
+						may violate their terms of service and can get your account restricted or
+						banned. It is off by default and never runs until you acknowledge this risk.
+					</p>
+					<label class="check">
+						<input type="checkbox" name="browser_automation_ack" checked?={ prefs.BrowserAutomationAck }/>
+						I understand and accept the terms-of-service and account-ban risk.
+					</label>
+					<label class="check">
+						<input type="checkbox" name="enable_browser" checked?={ browserEnabled(prefs) }/>
+						Enable the browser source (requires the acknowledgment above).
+					</label>
+				</fieldset>
 				<div class="actions">
 					<button type="submit" class="primary">Save preferences</button>
 				</div>

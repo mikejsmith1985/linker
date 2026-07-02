@@ -334,6 +334,39 @@ func TestSearchURLsRejectsEmpty(t *testing.T) {
 	}
 }
 
+func TestSettingsRejectsBrowserWithoutAcknowledgment(t *testing.T) {
+	st := &webFakeStore{}
+	form := "work_location_pref=remote&enable_browser=on" // no browser_automation_ack
+	req := httptest.NewRequest(http.MethodPost, "/settings", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 when enabling browser without acknowledgment", rr.Code)
+	}
+	// Nothing should have been persisted.
+	if browserEnabled(st.savedPrefs) || st.savedPrefs.BrowserAutomationAck {
+		t.Error("browser source should not be saved without acknowledgment")
+	}
+}
+
+func TestSettingsAllowsBrowserWithAcknowledgment(t *testing.T) {
+	st := &webFakeStore{}
+	form := "work_location_pref=remote&enable_browser=on&browser_automation_ack=on"
+	req := httptest.NewRequest(http.MethodPost, "/settings", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rr.Code)
+	}
+	if !st.savedPrefs.BrowserAutomationAck || !browserEnabled(st.savedPrefs) {
+		t.Errorf("browser should be enabled after acknowledgment: %+v", st.savedPrefs)
+	}
+}
+
 func TestOpenPostingRecordsAndRedirectsToExternalURL(t *testing.T) {
 	st := &webFakeStore{
 		match: store.MatchWithOpening{
