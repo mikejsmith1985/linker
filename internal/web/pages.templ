@@ -37,6 +37,16 @@ templ Home(resume *store.Resume, hasResume bool) {
 				</div>
 			</form>
 		</section>
+		<section class="card">
+			<h2>Or target specific companies</h2>
+			<p class="hint">Enter company names (one per line) to pull openings straight from their careers feed and score them against your resume. Works for employers on Greenhouse or Lever (much of tech); some large enterprises use other systems and won't resolve.</p>
+			<form method="post" action="/search/companies">
+				<textarea name="companies" rows="3" placeholder="Stripe&#10;Databricks&#10;Airbnb"></textarea>
+				<div class="actions">
+					<button type="submit" class="secondary" disabled?={ !hasResume }>Search these companies</button>
+				</div>
+			</form>
+		</section>
 	}
 }
 

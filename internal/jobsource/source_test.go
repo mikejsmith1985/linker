@@ -29,3 +29,23 @@ func TestSourceInterfaceSatisfied(t *testing.T) {
 		t.Errorf("Discover() = %v, %v", got, err)
 	}
 }
+
+func TestFilterAndCapBounds(t *testing.T) {
+	many := make([]RawOpening, 100)
+	for i := range many {
+		many[i] = RawOpening{Title: "Engineer"}
+	}
+	got := filterAndCap(many, []string{"engineer"}, defaultSourceCap)
+	if len(got) != defaultSourceCap {
+		t.Errorf("cap = %d, want %d", len(got), defaultSourceCap)
+	}
+	if none := filterAndCap(many, []string{"lawyer"}, defaultSourceCap); len(none) != 0 {
+		t.Errorf("non-matching keyword kept %d, want 0", len(none))
+	}
+}
+
+func TestMatchesAnyKeywordEmptyMatchesAll(t *testing.T) {
+	if !matchesAnyKeyword("anything", nil) {
+		t.Error("no keywords should match everything")
+	}
+}

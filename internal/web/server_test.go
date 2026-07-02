@@ -87,17 +87,22 @@ func (f *webFakeStore) UpsertSelection(_ context.Context, _ int64, opened bool) 
 	return nil
 }
 
-// fakeActions records RunSearch/RunSearchURLs calls.
+// fakeActions records RunSearch/RunSearchURLs/RunSearchCompanies calls.
 type fakeActions struct {
-	id       int64
-	gotURLs  []string
-	urlsSeen bool
+	id           int64
+	gotURLs      []string
+	urlsSeen     bool
+	gotCompanies []string
 }
 
 func (a *fakeActions) RunSearch(context.Context) (int64, error) { return a.id, nil }
 func (a *fakeActions) RunSearchURLs(_ context.Context, urls []string) (int64, error) {
 	a.urlsSeen = true
 	a.gotURLs = urls
+	return a.id, nil
+}
+func (a *fakeActions) RunSearchCompanies(_ context.Context, companies []string) (int64, error) {
+	a.gotCompanies = companies
 	return a.id, nil
 }
 
@@ -320,6 +325,43 @@ func TestSearchURLsParsesAndForwardsURLs(t *testing.T) {
 	}
 	if len(actions.gotURLs) != 3 {
 		t.Errorf("parsed %d urls, want 3: %v", len(actions.gotURLs), actions.gotURLs)
+	}
+}
+
+func TestSearchCompaniesParsesMultiWordNames(t *testing.T) {
+	st := &webFakeStore{}
+	actions := &fakeActions{id: 21}
+	server := NewServer(st, fakeIngestor{}, actions, &fakeDocs{}, nil).Routes()
+
+	// Newline- and comma-separated; "Match Group" keeps its internal space.
+	form := "companies=" + "Stripe%0AMatch+Group%2C+Databricks"
+	req := httptest.NewRequest(http.MethodPost, "/search/companies", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	server.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusSeeOther || rr.Header().Get("Location") != "/search/21" {
+		t.Fatalf("status=%d loc=%q, want 303 /search/21", rr.Code, rr.Header().Get("Location"))
+	}
+	want := []string{"Stripe", "Match Group", "Databricks"}
+	if len(actions.gotCompanies) != 3 {
+		t.Fatalf("parsed %v, want %v", actions.gotCompanies, want)
+	}
+	for i := range want {
+		if actions.gotCompanies[i] != want[i] {
+			t.Errorf("company[%d] = %q, want %q", i, actions.gotCompanies[i], want[i])
+		}
+	}
+}
+
+func TestSearchCompaniesRejectsEmpty(t *testing.T) {
+	st := &webFakeStore{}
+	req := httptest.NewRequest(http.MethodPost, "/search/companies", strings.NewReader("companies=  "))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for no companies", rr.Code)
 	}
 }
 

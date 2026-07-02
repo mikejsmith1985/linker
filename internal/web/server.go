@@ -27,6 +27,7 @@ import (
 type Actions interface {
 	RunSearch(ctx context.Context) (int64, error)
 	RunSearchURLs(ctx context.Context, urls []string) (int64, error)
+	RunSearchCompanies(ctx context.Context, companies []string) (int64, error)
 }
 
 // ResumeIngestor validates, parses, and stores an uploaded resume.
@@ -69,6 +70,7 @@ func (s *Server) Routes() http.Handler {
 	r.Post("/settings", s.handleSaveSettings)
 	r.Post("/search", s.handleSearch)
 	r.Post("/search/urls", s.handleSearchURLs)
+	r.Post("/search/companies", s.handleSearchCompanies)
 	r.Get("/search/{id}", s.handleSearchResults)
 	r.Get("/job/{id}", s.handleJob)
 	r.Post("/job/{id}/documents/{docType}", s.handleSaveDocument)
@@ -194,6 +196,29 @@ func (s *Server) handleSearchURLs(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		s.fail(w, "run url search", err)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/search/%d", searchID), http.StatusSeeOther)
+}
+
+// handleSearchCompanies scores openings pulled from named companies' ATS feeds.
+func (s *Server) handleSearchCompanies(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "could not read form", http.StatusBadRequest)
+		return
+	}
+	companies := splitLines(r.FormValue("companies"))
+	if len(companies) == 0 {
+		http.Error(w, "enter at least one company name", http.StatusBadRequest)
+		return
+	}
+	searchID, err := s.actions.RunSearchCompanies(r.Context(), companies)
+	if errors.Is(err, orchestrator.ErrNoResume) {
+		http.Error(w, "upload a resume before searching", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		s.fail(w, "run company search", err)
 		return
 	}
 	http.Redirect(w, r, fmt.Sprintf("/search/%d", searchID), http.StatusSeeOther)
@@ -514,9 +539,21 @@ func browserEnabled(prefs store.Preferences) bool {
 // splitURLs parses a textarea of pasted URLs separated by newlines, spaces, or
 // commas into a clean list.
 func splitURLs(raw string) []string {
-	fields := strings.FieldsFunc(raw, func(r rune) bool {
+	return splitOn(raw, func(r rune) bool {
 		return r == '\n' || r == '\r' || r == ' ' || r == '\t' || r == ','
 	})
+}
+
+// splitLines parses a textarea into entries separated by newlines or commas only,
+// preserving spaces within an entry (e.g. a multi-word company name).
+func splitLines(raw string) []string {
+	return splitOn(raw, func(r rune) bool {
+		return r == '\n' || r == '\r' || r == ','
+	})
+}
+
+func splitOn(raw string, isSep func(rune) bool) []string {
+	fields := strings.FieldsFunc(raw, isSep)
 	var out []string
 	for _, field := range fields {
 		if trimmed := strings.TrimSpace(field); trimmed != "" {
