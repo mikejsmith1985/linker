@@ -218,9 +218,22 @@ func (o *Orchestrator) maybeEagerGenerate(ctx context.Context, qualifyingRank in
 func buildQuery(resume store.Resume, prefs store.Preferences) jobsource.Query {
 	return jobsource.Query{
 		Keywords:          extractKeywords(resume.StructuredProfile),
+		RoleTitles:        extractRoleTitles(resume.StructuredProfile),
 		WorkLocationPref:  string(prefs.WorkLocationPref),
 		RequiredSalaryMin: prefs.RequiredSalaryMin,
 	}
+}
+
+// extractRoleTitles pulls target job titles from the structured profile's
+// "Target roles:" line — these drive the per-role search queries.
+func extractRoleTitles(profile string) []string {
+	const maxRoles = 6
+	for _, line := range strings.Split(profile, "\n") {
+		if rest, ok := cutFold(strings.TrimSpace(line), "target roles:"); ok {
+			return topN(splitAndTrim(rest, ","), maxRoles)
+		}
+	}
+	return nil
 }
 
 // extractKeywords pulls skill keywords from the structured profile's "Skills:"

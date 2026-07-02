@@ -72,5 +72,5 @@ func (a *Arbeitnow) Discover(ctx context.Context, query Query) ([]RawOpening, er
 			SourceName:       a.Name(),
 		})
 	}
-	return filterAndCap(openings, query.Keywords, defaultSourceCap), nil
+	return filterAndCap(openings, query.FilterKeywords(), defaultSourceCap), nil
 }

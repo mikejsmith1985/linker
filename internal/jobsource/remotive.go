@@ -45,12 +45,29 @@ type remotiveResponse struct {
 	} `json:"jobs"`
 }
 
-// Discover queries Remotive and maps its results into RawOpenings. Every result
-// is a remote role.
+// Discover runs each target-role query against Remotive and merges the results.
+// Every result is a remote role. Duplicates are collapsed later by the registry.
 func (r *Remotive) Discover(ctx context.Context, query Query) ([]RawOpening, error) {
+	var openings []RawOpening
+	var lastErr error
+	for _, term := range query.SearchTerms() {
+		batch, err := r.searchOne(ctx, term)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		openings = append(openings, batch...)
+	}
+	if len(openings) == 0 && lastErr != nil {
+		return nil, lastErr
+	}
+	return openings, nil
+}
+
+func (r *Remotive) searchOne(ctx context.Context, term string) ([]RawOpening, error) {
 	params := url.Values{}
-	if search := strings.TrimSpace(strings.Join(query.Keywords, " ")); search != "" {
-		params.Set("search", search)
+	if term != "" {
+		params.Set("search", term)
 	}
 	params.Set("limit", strconv.Itoa(r.limit))
 

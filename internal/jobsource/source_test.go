@@ -49,3 +49,33 @@ func TestMatchesAnyKeywordEmptyMatchesAll(t *testing.T) {
 		t.Error("no keywords should match everything")
 	}
 }
+
+func TestSearchTermsPrefersRoleTitlesCapped(t *testing.T) {
+	q := Query{
+		Keywords:   []string{"scrum", "kanban"},
+		RoleTitles: []string{"Scrum Master", "Release Train Engineer", "Agile Coach", "Delivery Lead"},
+	}
+	terms := q.SearchTerms()
+	if len(terms) != maxSearchTerms {
+		t.Fatalf("got %d terms, want %d (capped)", len(terms), maxSearchTerms)
+	}
+	if terms[0] != "Scrum Master" {
+		t.Errorf("first term = %q, want the first role title", terms[0])
+	}
+}
+
+func TestSearchTermsFallsBackToJoinedKeywords(t *testing.T) {
+	q := Query{Keywords: []string{"go", "postgres"}}
+	terms := q.SearchTerms()
+	if len(terms) != 1 || terms[0] != "go postgres" {
+		t.Errorf("terms = %v, want [\"go postgres\"]", terms)
+	}
+}
+
+func TestFilterKeywordsUnifiesSkillsAndRoles(t *testing.T) {
+	q := Query{Keywords: []string{"scrum"}, RoleTitles: []string{"Agile Coach"}}
+	got := q.FilterKeywords()
+	if len(got) != 2 {
+		t.Fatalf("got %v, want skills + role titles", got)
+	}
+}

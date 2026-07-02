@@ -49,7 +49,7 @@ func (c *CompanyCareers) Discover(ctx context.Context, query Query) ([]RawOpenin
 			lastErr = err
 			continue
 		}
-		out = append(out, filterAndCap(jobs, query.Keywords, companyCap)...)
+		out = append(out, filterAndCap(jobs, query.FilterKeywords(), companyCap)...)
 	}
 	if len(out) == 0 && lastErr != nil {
 		return nil, lastErr

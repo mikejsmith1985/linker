@@ -76,7 +76,7 @@ func TestParseSalary(t *testing.T) {
 func TestRemotiveNonOKStatusIsError(t *testing.T) {
 	src := NewRemotive()
 	src.http = &fakeRoundTripper{body: "oops", status: 503}
-	if _, err := src.Discover(context.Background(), Query{}); err == nil {
+	if _, err := src.Discover(context.Background(), Query{Keywords: []string{"engineer"}}); err == nil {
 		t.Error("expected error on non-200 status")
 	}
 }

@@ -81,7 +81,7 @@ func TestAdzunaMapsResults(t *testing.T) {
 func TestAdzunaNonOKStatusIsError(t *testing.T) {
 	a := NewAdzuna("id", "key")
 	a.http = &fakeRoundTripper{body: "rate limited", status: http.StatusTooManyRequests}
-	if _, err := a.Discover(context.Background(), Query{}); err == nil {
+	if _, err := a.Discover(context.Background(), Query{Keywords: []string{"engineer"}}); err == nil {
 		t.Error("expected error on non-200 status")
 	}
 }

@@ -72,5 +72,5 @@ func (j *Jobicy) Discover(ctx context.Context, query Query) ([]RawOpening, error
 			SourceName:       j.Name(),
 		})
 	}
-	return filterAndCap(openings, query.Keywords, defaultSourceCap), nil
+	return filterAndCap(openings, query.FilterKeywords(), defaultSourceCap), nil
 }

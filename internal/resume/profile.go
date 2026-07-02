@@ -13,7 +13,8 @@ const profileSystemPrompt = `You organize a resume's raw text into a concise str
 Produce plain text with these sections:
 - Skills: comma-separated technical and professional skills actually mentioned.
 - Experience: bullet lines of role @ employer (dates) — one per position found.
-- Credentials: degrees/certifications mentioned, or "none stated".`
+- Credentials: degrees/certifications mentioned, or "none stated".
+- Target roles: comma-separated list of 3 to 6 specific job titles this candidate is well qualified for based on their experience (e.g. "Scrum Master, Release Train Engineer, Agile Coach"). Use standard industry titles a job board would list.`
 
 // ExtractProfile asks the LLM to organize raw resume text into a structured
 // profile. The profile is derived solely from the supplied text (no fabrication).
