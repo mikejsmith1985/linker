@@ -94,16 +94,16 @@
 
 ### Tests for User Story 2 (write first, must FAIL) ⚠️
 
-- [ ] T029 [P] [US2] Unit tests for no-fabrication flagging (skill absent from resume → flagged; clean reword → no flags; refuses score<70) in `internal/documents/generator_test.go`
-- [ ] T030 [P] [US2] Integration test: eager top-3 generation during search + on-demand generation caches on second open, in `internal/web/server_test.go`
+- [x] T029 [P] [US2] Unit tests for no-fabrication flagging (skill absent from resume → flagged; clean reword → no flags; refuses score<70) in `internal/documents/generator_test.go`
+- [x] T030 [P] [US2] Integration test: eager top-3 generation during search + on-demand generation caches on second open, in `internal/web/server_test.go`
 
 ### Implementation for User Story 2
 
-- [ ] T031 [US2] Implement `Generate` + deterministic no-fabrication verification pass in `internal/documents/generator.go` (depends on T011; FR-007a, FR-008)
-- [ ] T032 [US2] Hook eager top-3 document generation into `RunSearch` in `internal/orchestrator/orchestrator.go` (depends on T024, T031; FR-007)
-- [ ] T033 [US2] Implement on-demand generation + caching in the `GET /job/{matchId}` handler in `internal/web/server.go` (depends on T031)
-- [ ] T034 [P] [US2] Implement the job-detail view (score, explanation, documents, fabrication flags, inline edit) in `internal/web/job.templ`
-- [ ] T035 [US2] Implement edit-save (`POST /job/{matchId}/documents/{docType}`) and download (`GET …/download?fmt=pdf|txt`) handlers in `internal/web/server.go` (FR-010)
+- [x] T031 [US2] Implement `Generate` + deterministic no-fabrication verification pass in `internal/documents/generator.go` (depends on T011; FR-007a, FR-008)
+- [x] T032 [US2] Hook eager top-3 document generation into `RunSearch` in `internal/orchestrator/orchestrator.go` (depends on T024, T031; FR-007)
+- [x] T033 [US2] Implement on-demand generation + caching in the `GET /job/{matchId}` handler in `internal/web/server.go` (depends on T031)
+- [x] T034 [P] [US2] Implement the job-detail view (score, explanation, documents, fabrication flags, inline edit) in `internal/web/job.templ`
+- [x] T035 [US2] Implement edit-save (`POST /job/{matchId}/documents/{docType}`) and download (`GET …/download?fmt=pdf|txt`) handlers in `internal/web/server.go` (FR-010)
 
 **Checkpoint**: US1 + US2 both work independently.
 

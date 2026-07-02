@@ -51,6 +51,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - templ + HTMX dashboard to upload a resume, set preferences, run a search, and
     review scored matches with per-source health (`internal/web`). CSS is served as
     a cacheable `/static/styles.css` asset, never inlined.
+  - Tailored resume + cover letter generation per qualifying opening under a
+    no-fabrication guarantee: a verification pass flags any skill/term the draft
+    claims that the job wants but the resume never mentions, rather than shipping
+    it silently (`internal/documents`). Documents are generated eagerly for the
+    top 3 scores and on first open (then cached) for the rest, and are reviewable,
+    editable, and downloadable as PDF/TXT/Markdown from the job detail view.
 
 ### Fixed
 - Pre-push hook (`.forge/hooks/pre-push` and `.forge/hooks/pre-push.ps1`) no

@@ -105,6 +105,7 @@ templ matchCard(m store.MatchWithOpening) {
 		<p class="hint">{ m.Opening.Location } · { salaryText(m.Opening) } · via { sourcesText(m.Opening) }</p>
 		<p class="explain">{ m.ScoreExplanation }</p>
 		<div class="actions">
+			<a class="primary btn" href={ templ.SafeURL(jobPath(m.ID)) }>View &amp; tailor</a>
 			<a class="src" href={ templ.SafeURL(m.Opening.OriginalURL) } target="_blank" rel="noopener">Open posting</a>
 		</div>
 	</section>

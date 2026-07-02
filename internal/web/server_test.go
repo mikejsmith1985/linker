@@ -16,11 +16,14 @@ import (
 
 // webFakeStore implements store.Store for handler tests.
 type webFakeStore struct {
-	search     store.Search
-	qualifying []store.MatchWithOpening
-	listCalled bool
-	savedPrefs store.Preferences
-	activeErr  error
+	search       store.Search
+	qualifying   []store.MatchWithOpening
+	listCalled   bool
+	savedPrefs   store.Preferences
+	activeErr    error
+	match        store.MatchWithOpening
+	doc          store.GeneratedDocument
+	savedContent string
 }
 
 func (f *webFakeStore) RunMigrations(context.Context) error                     { return nil }
@@ -59,16 +62,19 @@ func (f *webFakeStore) ListQualifying(context.Context, int64) ([]store.MatchWith
 	return f.qualifying, nil
 }
 func (f *webFakeStore) GetMatchWithOpening(context.Context, int64) (store.MatchWithOpening, error) {
-	return store.MatchWithOpening{}, nil
+	return f.match, nil
 }
 func (f *webFakeStore) SaveDocument(context.Context, store.GeneratedDocument) (int64, error) {
 	return 1, nil
 }
 func (f *webFakeStore) GetDocument(context.Context, int64, store.DocType) (store.GeneratedDocument, error) {
-	return store.GeneratedDocument{}, store.ErrNotFound
+	return f.doc, nil
 }
-func (f *webFakeStore) UpdateDocumentContent(context.Context, int64, string) error { return nil }
-func (f *webFakeStore) UpsertSelection(context.Context, int64, bool) error         { return nil }
+func (f *webFakeStore) UpdateDocumentContent(_ context.Context, _ int64, content string) error {
+	f.savedContent = content
+	return nil
+}
+func (f *webFakeStore) UpsertSelection(context.Context, int64, bool) error { return nil }
 
 // fakeActions records RunSearch calls.
 type fakeActions struct{ id int64 }
@@ -82,8 +88,26 @@ func (i fakeIngestor) Ingest(context.Context, string, string, []byte) (store.Res
 	return store.Resume{ID: 1}, i.err
 }
 
+// fakeDocs records EnsureDocument calls and returns canned documents.
+type fakeDocs struct {
+	calls int
+	flags []string
+}
+
+func (d *fakeDocs) EnsureDocument(_ context.Context, matchID int64, docType store.DocType, _ store.JobOpening, _ string) (store.GeneratedDocument, error) {
+	d.calls++
+	return store.GeneratedDocument{
+		ID: matchID, MatchResultID: matchID, Type: docType,
+		ContentMarkdown: "## " + string(docType), FabricationFlags: d.flags,
+	}, nil
+}
+
 func newTestServer(st store.Store) http.Handler {
-	return NewServer(st, fakeIngestor{}, fakeActions{id: 7}, nil).Routes()
+	return NewServer(st, fakeIngestor{}, fakeActions{id: 7}, &fakeDocs{}, nil).Routes()
+}
+
+func newTestServerWithDocs(st store.Store, docs DocumentService) http.Handler {
+	return NewServer(st, fakeIngestor{}, fakeActions{id: 7}, docs, nil).Routes()
 }
 
 func TestSearchResultsShowsQualifyingAndHealth(t *testing.T) {
@@ -128,7 +152,7 @@ func TestSearchResultsEmptyState(t *testing.T) {
 
 func TestUploadRejectsUnreadableResume(t *testing.T) {
 	st := &webFakeStore{}
-	server := NewServer(st, fakeIngestor{err: resume.ErrUnreadable}, fakeActions{}, nil).Routes()
+	server := NewServer(st, fakeIngestor{err: resume.ErrUnreadable}, fakeActions{}, &fakeDocs{}, nil).Routes()
 
 	body, contentType := multipartResume(t, "cv.txt", "anything")
 	req := httptest.NewRequest(http.MethodPost, "/resume", body)
@@ -180,6 +204,80 @@ func TestSaveSettingsPersistsPreferences(t *testing.T) {
 	}
 	if !st.savedPrefs.WillingToTravel {
 		t.Error("WillingToTravel not saved")
+	}
+}
+
+func TestJobGeneratesDocumentsForQualifyingMatch(t *testing.T) {
+	st := &webFakeStore{
+		match: store.MatchWithOpening{
+			MatchResult: store.MatchResult{ID: 5, Score: 88, IsQualifying: true},
+			Opening:     store.JobOpening{Title: "Platform Engineer", Employer: "Acme"},
+		},
+	}
+	docs := &fakeDocs{flags: []string{"Kubernetes"}}
+	rr := httptest.NewRecorder()
+	newTestServerWithDocs(st, docs).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/job/5", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	// Both documents (resume + cover) generated on view.
+	if docs.calls != 2 {
+		t.Errorf("EnsureDocument calls = %d, want 2 (resume + cover)", docs.calls)
+	}
+	// The fabrication flag must be surfaced for review, not hidden.
+	if !strings.Contains(rr.Body.String(), "Kubernetes") {
+		t.Error("fabrication flag not shown to user")
+	}
+}
+
+func TestJobForbiddenForNonQualifyingMatch(t *testing.T) {
+	st := &webFakeStore{
+		match: store.MatchWithOpening{
+			MatchResult: store.MatchResult{ID: 6, Score: 40, IsQualifying: false},
+		},
+	}
+	docs := &fakeDocs{}
+	rr := httptest.NewRecorder()
+	newTestServerWithDocs(st, docs).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/job/6", nil))
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403 for sub-70 match", rr.Code)
+	}
+	if docs.calls != 0 {
+		t.Errorf("EnsureDocument called %d times, want 0 for non-qualifying (FR-008)", docs.calls)
+	}
+}
+
+func TestSaveDocumentPersistsEdit(t *testing.T) {
+	st := &webFakeStore{doc: store.GeneratedDocument{ID: 9, Type: store.TailoredResume}}
+	form := "content=" + "my+edited+resume"
+	req := httptest.NewRequest(http.MethodPost, "/job/5/documents/tailored_resume", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rr.Code)
+	}
+	if st.savedContent != "my edited resume" {
+		t.Errorf("saved content = %q, want 'my edited resume'", st.savedContent)
+	}
+}
+
+func TestDownloadDocumentPDF(t *testing.T) {
+	st := &webFakeStore{doc: store.GeneratedDocument{ID: 9, Type: store.CoverLetter, ContentMarkdown: "# Cover\n\nDear team"}}
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/job/5/documents/cover_letter/download?fmt=pdf", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "application/pdf" {
+		t.Errorf("Content-Type = %q, want application/pdf", ct)
+	}
+	if !strings.HasPrefix(rr.Body.String(), "%PDF") {
+		t.Error("body is not a PDF")
 	}
 }
 

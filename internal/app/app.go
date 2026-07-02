@@ -13,6 +13,7 @@ import (
 
 	"github.com/mikejsmith1985/linker/internal/claude"
 	"github.com/mikejsmith1985/linker/internal/config"
+	"github.com/mikejsmith1985/linker/internal/documents"
 	"github.com/mikejsmith1985/linker/internal/jobsource"
 	"github.com/mikejsmith1985/linker/internal/orchestrator"
 	"github.com/mikejsmith1985/linker/internal/resume"
@@ -48,9 +49,10 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 
 	ingestor := resume.NewService(llm, st)
 	scorer := scoring.NewScorer(llm)
+	docService := documents.NewService(documents.NewGenerator(llm), st)
 	registry := jobsource.NewRegistry(buildSources(cfg)...)
-	orch := orchestrator.New(st, registry, scorer, nil, log)
-	server := web.NewServer(st, ingestor, orch, log)
+	orch := orchestrator.New(st, registry, scorer, docService, log)
+	server := web.NewServer(st, ingestor, orch, docService, log)
 
 	httpSrv := &http.Server{
 		Addr:              cfg.HTTPAddr,

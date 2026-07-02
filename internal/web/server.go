@@ -20,6 +20,7 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-pdf/fpdf"
 )
 
 // Actions are the orchestrator-backed operations the dashboard can trigger.
@@ -32,11 +33,17 @@ type ResumeIngestor interface {
 	Ingest(ctx context.Context, filename, format string, data []byte) (store.Resume, error)
 }
 
+// DocumentService generates (and caches) a tailored document for a match.
+type DocumentService interface {
+	EnsureDocument(ctx context.Context, matchID int64, docType store.DocType, opening store.JobOpening, resumeFacts string) (store.GeneratedDocument, error)
+}
+
 // Server holds dependencies for the HTTP handlers.
 type Server struct {
 	store    store.Store
 	ingestor ResumeIngestor
 	actions  Actions
+	docs     DocumentService
 	log      *slog.Logger
 }
 
@@ -44,11 +51,11 @@ type Server struct {
 const maxResumeBytes = 10 << 20 // 10 MiB
 
 // NewServer builds the dashboard server. A nil logger falls back to default.
-func NewServer(st store.Store, ingestor ResumeIngestor, actions Actions, log *slog.Logger) *Server {
+func NewServer(st store.Store, ingestor ResumeIngestor, actions Actions, docs DocumentService, log *slog.Logger) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Server{store: st, ingestor: ingestor, actions: actions, log: log}
+	return &Server{store: st, ingestor: ingestor, actions: actions, docs: docs, log: log}
 }
 
 // Routes returns the configured HTTP handler.
@@ -61,6 +68,9 @@ func (s *Server) Routes() http.Handler {
 	r.Post("/settings", s.handleSaveSettings)
 	r.Post("/search", s.handleSearch)
 	r.Get("/search/{id}", s.handleSearchResults)
+	r.Get("/job/{id}", s.handleJob)
+	r.Post("/job/{id}/documents/{docType}", s.handleSaveDocument)
+	r.Get("/job/{id}/documents/{docType}/download", s.handleDownloadDocument)
 	return r
 }
 
@@ -171,6 +181,143 @@ func (s *Server) handleSearchResults(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, Results(search, matches))
 }
 
+// handleJob renders one opening: score, explanation, and both tailored
+// documents — generating them on first view and caching thereafter (FR-007).
+// Documents are only available for qualifying (>=70) openings (FR-008).
+func (s *Server) handleJob(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.idParam(w, r)
+	if !ok {
+		return
+	}
+	match, err := s.store.GetMatchWithOpening(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "match not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		s.fail(w, "load match", err)
+		return
+	}
+	if !match.IsQualifying {
+		http.Error(w, "documents are only generated for qualifying matches (score 70+)", http.StatusForbidden)
+		return
+	}
+
+	facts := s.resumeFacts(r.Context())
+	tailored, err := s.docs.EnsureDocument(r.Context(), id, store.TailoredResume, match.Opening, facts)
+	if err != nil {
+		s.fail(w, "generate tailored resume", err)
+		return
+	}
+	cover, err := s.docs.EnsureDocument(r.Context(), id, store.CoverLetter, match.Opening, facts)
+	if err != nil {
+		s.fail(w, "generate cover letter", err)
+		return
+	}
+	s.render(w, r, Job(match, tailored, cover))
+}
+
+// handleSaveDocument stores a user's edit to a generated document (FR-010).
+func (s *Server) handleSaveDocument(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.idParam(w, r)
+	if !ok {
+		return
+	}
+	docType, ok := parseDocType(chi.URLParam(r, "docType"))
+	if !ok {
+		http.Error(w, "unknown document type", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "could not read form", http.StatusBadRequest)
+		return
+	}
+	doc, err := s.store.GetDocument(r.Context(), id, docType)
+	if err != nil {
+		s.fail(w, "load document", err)
+		return
+	}
+	if err := s.store.UpdateDocumentContent(r.Context(), doc.ID, r.FormValue("content")); err != nil {
+		s.fail(w, "save document", err)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/job/%d", id), http.StatusSeeOther)
+}
+
+// handleDownloadDocument serves a generated document as txt, md, or pdf (FR-010).
+func (s *Server) handleDownloadDocument(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.idParam(w, r)
+	if !ok {
+		return
+	}
+	docType, ok := parseDocType(chi.URLParam(r, "docType"))
+	if !ok {
+		http.Error(w, "unknown document type", http.StatusBadRequest)
+		return
+	}
+	doc, err := s.store.GetDocument(r.Context(), id, docType)
+	if err != nil {
+		http.Error(w, "document not found", http.StatusNotFound)
+		return
+	}
+	base := fmt.Sprintf("%s-%d", docType, id)
+	switch r.URL.Query().Get("fmt") {
+	case "pdf":
+		s.writePDF(w, base, doc.ContentMarkdown)
+	case "md":
+		writeAttachment(w, base+".md", "text/markdown; charset=utf-8", []byte(doc.ContentMarkdown))
+	default:
+		writeAttachment(w, base+".txt", "text/plain; charset=utf-8", []byte(doc.ContentMarkdown))
+	}
+}
+
+// resumeFacts returns the active resume's raw text (the no-fabrication source),
+// or empty when no resume is active.
+func (s *Server) resumeFacts(ctx context.Context) string {
+	resume, err := s.store.GetActiveResume(ctx)
+	if err != nil {
+		return ""
+	}
+	return resume.RawText
+}
+
+func (s *Server) writePDF(w http.ResponseWriter, base, markdown string) {
+	pdf := fpdf.New("P", "mm", "Letter", "")
+	pdf.SetMargins(20, 20, 20)
+	pdf.AddPage()
+	pdf.SetFont("Helvetica", "", 11)
+	for _, line := range strings.Split(markdown, "\n") {
+		// MultiCell wraps long lines; an empty line becomes vertical space.
+		if strings.TrimSpace(line) == "" {
+			pdf.Ln(4)
+			continue
+		}
+		pdf.MultiCell(0, 5, line, "", "", false)
+	}
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+base+".pdf\"")
+	if err := pdf.Output(w); err != nil {
+		s.log.Error("pdf output failed", "err", err)
+	}
+}
+
+func writeAttachment(w http.ResponseWriter, filename, contentType string, body []byte) {
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	_, _ = w.Write(body)
+}
+
+func parseDocType(s string) (store.DocType, bool) {
+	switch s {
+	case string(store.TailoredResume):
+		return store.TailoredResume, true
+	case string(store.CoverLetter):
+		return store.CoverLetter, true
+	default:
+		return "", false
+	}
+}
+
 func (s *Server) handleCSS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
@@ -247,6 +394,25 @@ func sourcesText(o store.JobOpening) string {
 	return strings.Join(o.SourceNames, ", ")
 }
 
+func jobPath(matchID int64) string { return fmt.Sprintf("/job/%d", matchID) }
+
+func docSavePath(matchID int64, docType store.DocType) string {
+	return fmt.Sprintf("/job/%d/documents/%s", matchID, docType)
+}
+
+func docDownloadPath(matchID int64, docType store.DocType, format string) string {
+	return fmt.Sprintf("/job/%d/documents/%s/download?fmt=%s", matchID, docType, format)
+}
+
+func docTypeLabel(docType store.DocType) string {
+	if docType == store.CoverLetter {
+		return "Cover letter"
+	}
+	return "Tailored resume"
+}
+
+func joinFlags(flags []string) string { return strings.Join(flags, ", ") }
+
 const styleCSS = `
 :root { --bg:#0f1115; --card:#1a1d24; --ink:#e7e9ee; --muted:#9aa3b2; --accent:#3b82f6; --ok:#16a34a; --danger:#ef4444; }
 * { box-sizing: border-box; }
@@ -275,4 +441,9 @@ button { cursor:pointer; border:none; border-radius:8px; padding:.5rem .8rem; fo
 button:disabled { opacity:.5; cursor:not-allowed; }
 .primary { background:var(--accent); color:#fff; }
 .secondary { background:#272b35; color:var(--ink); }
+.btn { display:inline-block; text-decoration:none; border-radius:8px; padding:.5rem .8rem; }
+a.primary.btn { color:#fff; }
+a.secondary.btn { color:var(--ink); }
+textarea { width:100%; background:#0d0f14; color:var(--ink); border:1px solid #2a2e38; border-radius:8px; padding:.7rem; font:ui-monospace,monospace; font-size:.85rem; resize:vertical; }
+.warn { background:rgba(239,68,68,.12); border:1px solid var(--danger); color:#fca5a5; padding:.6rem .8rem; border-radius:8px; }
 `
