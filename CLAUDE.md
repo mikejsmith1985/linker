@@ -5,3 +5,11 @@
 > before beginning any task.
 
 @.github/copilot-instructions.md
+
+<!-- SPECKIT START -->
+## Active Feature Plan
+
+- **Feature**: Resume-Driven Job Matcher — `specs/001-resume-job-matcher/plan.md`
+- Repurposes this service from a GitHub→LinkedIn post drafter into a resume-driven job matcher. See the plan for structure, the spec for requirements, and `contracts/` for interface contracts.
+<!-- SPECKIT END -->
+
