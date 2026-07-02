@@ -3,7 +3,10 @@
 // behind a single interface, and merges their results with de-duplication.
 package jobsource
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 // Query is the discovery request derived from the resume and preferences.
 type Query struct {
@@ -43,3 +46,38 @@ const (
 	HealthFailed    = "failed"
 	HealthNoResults = "no_results"
 )
+
+// defaultSourceCap bounds how many openings a keyword-filtered source returns, so
+// a single search does not fan out into hundreds of expensive scoring calls.
+const defaultSourceCap = 15
+
+// matchesAnyKeyword reports whether any keyword appears in the text
+// (case-insensitive). With no keywords it matches everything.
+func matchesAnyKeyword(text string, keywords []string) bool {
+	if len(keywords) == 0 {
+		return true
+	}
+	lower := strings.ToLower(text)
+	for _, keyword := range keywords {
+		if keyword != "" && strings.Contains(lower, strings.ToLower(keyword)) {
+			return true
+		}
+	}
+	return false
+}
+
+// filterAndCap keeps openings that match the query's keywords, up to cap. Sources
+// whose upstream API has no server-side search use this to stay relevant and
+// bounded.
+func filterAndCap(openings []RawOpening, keywords []string, cap int) []RawOpening {
+	out := make([]RawOpening, 0, cap)
+	for _, opening := range openings {
+		if matchesAnyKeyword(opening.Title+" "+opening.Description, keywords) {
+			out = append(out, opening)
+			if len(out) >= cap {
+				break
+			}
+		}
+	}
+	return out
+}

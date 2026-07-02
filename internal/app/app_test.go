@@ -7,18 +7,23 @@ import (
 	"github.com/mikejsmith1985/linker/internal/jobsource"
 )
 
-func TestBuildSourcesAlwaysIncludesRemotive(t *testing.T) {
-	sources := buildSources(config.Config{})
-	if len(sources) != 1 || sources[0].Name() != "remotive" {
-		t.Fatalf("got %v, want [remotive] with no credentials", sourceNames(sources))
+func TestBuildSourcesIncludesKeyFreeDefaults(t *testing.T) {
+	names := sourceNames(buildSources(config.Config{}))
+	want := []string{"remotive", "remoteok", "arbeitnow", "jobicy"}
+	if len(names) != len(want) {
+		t.Fatalf("got %v, want the key-free defaults %v", names, want)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Errorf("source[%d] = %q, want %q", i, names[i], want[i])
+		}
 	}
 }
 
 func TestBuildSourcesAddsAdzunaWhenConfigured(t *testing.T) {
-	sources := buildSources(config.Config{AdzunaAppID: "id", AdzunaAppKey: "key"})
-	names := sourceNames(sources)
-	if len(names) != 2 || names[0] != "remotive" || names[1] != "adzuna" {
-		t.Errorf("sources = %v, want [remotive adzuna]", names)
+	names := sourceNames(buildSources(config.Config{AdzunaAppID: "id", AdzunaAppKey: "key"}))
+	if len(names) != 5 || names[len(names)-1] != "adzuna" {
+		t.Errorf("sources = %v, want key-free defaults + adzuna last", names)
 	}
 }
 

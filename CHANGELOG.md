@@ -30,6 +30,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     and README for one-command local setup.
 
 ### Changed
+- Broadened job coverage with three more key-free sources — **RemoteOK**,
+  **Arbeitnow**, and **Jobicy** — alongside Remotive, all always-on and needing
+  no credentials. Their results are keyword-filtered and capped so a search stays
+  relevant and bounded.
+- Added **company targeting**: name specific employers (e.g. Stripe, Databricks)
+  and pull openings straight from their public applicant-tracking feed
+  (Greenhouse, with a Lever fallback), scored against your resume
+  (`internal/jobsource` company source; `POST /search/companies`). Employers on
+  other systems (e.g. Workday) are not covered.
 - Added a **geographic eligibility gate**: a new "location/region" preference
   (default "United States") filters out remote roles the user isn't eligible for.
   A posting restricted to e.g. Brazil, Germany, or Europe-only is gated below the

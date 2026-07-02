@@ -99,7 +99,7 @@ func TestRunSearchRanksAndFlagsQualifying(t *testing.T) {
 	}
 	scorer := fakeScorer{byTitle: map[string]int{"Weak": 40, "Strong": 90}}
 
-	orch := New(st, disc, scorer, nil, nil, nil)
+	orch := New(st, disc, scorer, nil, nil, nil, nil)
 	searchID, err := orch.RunSearch(context.Background())
 	if err != nil {
 		t.Fatalf("RunSearch: %v", err)
@@ -142,7 +142,7 @@ func TestRunSearchURLsUsesFactoryDiscoverer(t *testing.T) {
 			health:   map[string]string{"pasted-url": jobsource.HealthSucceeded},
 		}
 	}
-	orch := New(st, fakeDiscoverer{}, fakeScorer{byTitle: map[string]int{"Pasted": 80}}, nil, factory, nil)
+	orch := New(st, fakeDiscoverer{}, fakeScorer{byTitle: map[string]int{"Pasted": 80}}, nil, factory, nil, nil)
 
 	if _, err := orch.RunSearchURLs(context.Background(), []string{"https://x/1"}); err != nil {
 		t.Fatalf("RunSearchURLs: %v", err)
@@ -155,9 +155,43 @@ func TestRunSearchURLsUsesFactoryDiscoverer(t *testing.T) {
 	}
 }
 
+func TestRunSearchCompaniesUsesFactory(t *testing.T) {
+	st := &fakeStore{
+		resume: store.Resume{ID: 1, StructuredProfile: "Skills: Go", RawText: "facts"},
+		prefs:  store.Preferences{WorkLocationPref: store.WorkRemote},
+	}
+	var gotCompanies []string
+	factory := func(companies []string) Discoverer {
+		gotCompanies = companies
+		return fakeDiscoverer{
+			openings: []store.JobOpening{{Title: "AtCompany", CanonicalKey: "k-co"}},
+			health:   map[string]string{"company": jobsource.HealthSucceeded},
+		}
+	}
+	orch := New(st, fakeDiscoverer{}, fakeScorer{byTitle: map[string]int{"AtCompany": 85}}, nil, nil, factory, nil)
+
+	if _, err := orch.RunSearchCompanies(context.Background(), []string{"Stripe"}); err != nil {
+		t.Fatalf("RunSearchCompanies: %v", err)
+	}
+	if len(gotCompanies) != 1 || gotCompanies[0] != "Stripe" {
+		t.Errorf("factory got companies %v, want [Stripe]", gotCompanies)
+	}
+	if len(st.created) != 1 || st.created[0].Score != 85 {
+		t.Errorf("company opening not scored: %+v", st.created)
+	}
+}
+
+func TestRunSearchCompaniesUnavailableWithoutFactory(t *testing.T) {
+	st := &fakeStore{resume: store.Resume{ID: 1}, prefs: store.Preferences{}}
+	orch := New(st, fakeDiscoverer{}, fakeScorer{}, nil, nil, nil, nil)
+	if _, err := orch.RunSearchCompanies(context.Background(), []string{"x"}); err != ErrCompanySearchUnavailable {
+		t.Errorf("err = %v, want ErrCompanySearchUnavailable", err)
+	}
+}
+
 func TestRunSearchURLsUnavailableWithoutFactory(t *testing.T) {
 	st := &fakeStore{resume: store.Resume{ID: 1}, prefs: store.Preferences{}}
-	orch := New(st, fakeDiscoverer{}, fakeScorer{}, nil, nil, nil)
+	orch := New(st, fakeDiscoverer{}, fakeScorer{}, nil, nil, nil, nil)
 	if _, err := orch.RunSearchURLs(context.Background(), []string{"x"}); err != ErrURLSearchUnavailable {
 		t.Errorf("err = %v, want ErrURLSearchUnavailable", err)
 	}
@@ -165,7 +199,7 @@ func TestRunSearchURLsUnavailableWithoutFactory(t *testing.T) {
 
 func TestRunSearchErrorsWithoutResume(t *testing.T) {
 	st := &fakeStore{resumeMissing: true}
-	orch := New(st, fakeDiscoverer{}, fakeScorer{}, nil, nil, nil)
+	orch := New(st, fakeDiscoverer{}, fakeScorer{}, nil, nil, nil, nil)
 	if _, err := orch.RunSearch(context.Background()); err != ErrNoResume {
 		t.Errorf("err = %v, want ErrNoResume", err)
 	}

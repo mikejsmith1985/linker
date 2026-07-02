@@ -41,21 +41,22 @@ type URLDiscovererFactory func(urls []string) Discoverer
 
 // Orchestrator wires discovery, scoring, persistence, and document generation.
 type Orchestrator struct {
-	store   store.Store
-	disc    Discoverer
-	score   Scorer
-	docs    DocGenerator
-	urlDisc URLDiscovererFactory
-	log     *slog.Logger
+	store       store.Store
+	disc        Discoverer
+	score       Scorer
+	docs        DocGenerator
+	urlDisc     URLDiscovererFactory
+	companyDisc URLDiscovererFactory
+	log         *slog.Logger
 }
 
 // New builds an orchestrator. docs may be nil to disable eager generation;
-// urlDisc may be nil to disable paste-a-URL search.
-func New(st store.Store, disc Discoverer, score Scorer, docs DocGenerator, urlDisc URLDiscovererFactory, log *slog.Logger) *Orchestrator {
+// urlDisc / companyDisc may be nil to disable paste-a-URL and company search.
+func New(st store.Store, disc Discoverer, score Scorer, docs DocGenerator, urlDisc, companyDisc URLDiscovererFactory, log *slog.Logger) *Orchestrator {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Orchestrator{store: st, disc: disc, score: score, docs: docs, urlDisc: urlDisc, log: log}
+	return &Orchestrator{store: st, disc: disc, score: score, docs: docs, urlDisc: urlDisc, companyDisc: companyDisc, log: log}
 }
 
 // ErrNoResume is returned when a search is started without an active resume.
@@ -71,6 +72,9 @@ type scored struct {
 // ErrURLSearchUnavailable is returned when paste-a-URL search is not configured.
 var ErrURLSearchUnavailable = errors.New("paste-a-URL search is not available")
 
+// ErrCompanySearchUnavailable is returned when company search is not configured.
+var ErrCompanySearchUnavailable = errors.New("company search is not available")
+
 // RunSearch performs one on-demand search over the configured sources.
 func (o *Orchestrator) RunSearch(ctx context.Context) (int64, error) {
 	return o.runWith(ctx, o.disc)
@@ -83,6 +87,15 @@ func (o *Orchestrator) RunSearchURLs(ctx context.Context, urls []string) (int64,
 		return 0, ErrURLSearchUnavailable
 	}
 	return o.runWith(ctx, o.urlDisc(urls))
+}
+
+// RunSearchCompanies scores openings pulled straight from the named companies'
+// public ATS feeds (FR-021-adjacent company targeting).
+func (o *Orchestrator) RunSearchCompanies(ctx context.Context, companies []string) (int64, error) {
+	if o.companyDisc == nil {
+		return 0, ErrCompanySearchUnavailable
+	}
+	return o.runWith(ctx, o.companyDisc(companies))
 }
 
 // runWith performs one on-demand search using the given discoverer and returns

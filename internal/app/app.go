@@ -65,7 +65,10 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	urlFactory := func(urls []string) orchestrator.Discoverer {
 		return jobsource.NewRegistry(jobsource.NewURLPaste(urls, llm))
 	}
-	orch := orchestrator.New(st, registry, scorer, docService, urlFactory, log)
+	companyFactory := func(companies []string) orchestrator.Discoverer {
+		return jobsource.NewRegistry(jobsource.NewCompanyCareers(companies))
+	}
+	orch := orchestrator.New(st, registry, scorer, docService, urlFactory, companyFactory, log)
 	server := web.NewServer(st, ingestor, orch, docService, log)
 
 	httpSrv := &http.Server{
@@ -90,11 +93,16 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	return nil
 }
 
-// buildSources assembles the enabled discovery sources. Remotive is the default
-// and needs no credentials, so it is always included; the Adzuna aggregator is
-// added when its credentials are configured.
+// buildSources assembles the enabled discovery sources. The key-free sources
+// (Remotive, RemoteOK, Arbeitnow, Jobicy) are always included; the Adzuna
+// aggregator is added when its credentials are configured.
 func buildSources(cfg config.Config) []jobsource.Source {
-	sources := []jobsource.Source{jobsource.NewRemotive()}
+	sources := []jobsource.Source{
+		jobsource.NewRemotive(),
+		jobsource.NewRemoteOK(),
+		jobsource.NewArbeitnow(),
+		jobsource.NewJobicy(),
+	}
 	if cfg.AdzunaConfigured() {
 		sources = append(sources, jobsource.NewAdzuna(cfg.AdzunaAppID, cfg.AdzunaAppKey))
 	}
