@@ -6,10 +6,9 @@ require (
 	github.com/a-h/templ v0.3.1020
 	github.com/anthropics/anthropic-sdk-go v1.47.0
 	github.com/go-chi/chi/v5 v5.3.0
-	github.com/google/go-github/v66 v66.0.0
 	github.com/jackc/pgx/v5 v5.10.0
+	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/pashagolub/pgxmock/v4 v4.9.0
-	golang.org/x/oauth2 v0.30.0
 )
 
 require (
@@ -19,9 +18,12 @@ require (
 	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cli/browser v1.3.0 // indirect
+	github.com/deckarep/golang-set/v2 v2.6.0 // indirect
 	github.com/fatih/color v1.16.0 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
-	github.com/google/go-querystring v1.1.0 // indirect
+	github.com/go-jose/go-jose/v3 v3.0.3 // indirect
+	github.com/go-pdf/fpdf v0.9.0 // indirect
+	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
@@ -30,6 +32,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/natefinch/atomic v1.0.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
+	github.com/playwright-community/playwright-go v0.5001.0 // indirect
 	github.com/standard-webhooks/standard-webhooks/libraries v0.0.1 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect

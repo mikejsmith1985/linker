@@ -1,0 +1,52 @@
+package web
+
+import "github.com/mikejsmith1985/linker/internal/store"
+
+// Job renders one opening with its score, explanation, and both tailored
+// documents for review, edit, and download.
+templ Job(match store.MatchWithOpening, tailored store.GeneratedDocument, cover store.GeneratedDocument) {
+	@Layout("linker — " + match.Opening.Title) {
+		<section class="card">
+			<div class="meta">
+				<span class="score">{ scoreText(match.Score) }</span>
+				<strong>{ match.Opening.Title }</strong>
+				<span>· { match.Opening.Employer }</span>
+				<span class="badge">{ string(match.Opening.WorkLocationType) }</span>
+			</div>
+			<p class="hint">{ match.Opening.Location } · { salaryText(match.Opening) } · via { sourcesText(match.Opening) }</p>
+			<p class="explain">{ match.ScoreExplanation }</p>
+			<div class="actions">
+				<form method="post" action={ templ.SafeURL(jobPath(match.ID) + "/select") }>
+					<button type="submit" class="secondary">Select to pursue</button>
+				</form>
+				<form method="post" action={ templ.SafeURL(jobPath(match.ID) + "/open") }>
+					<button type="submit" class="primary">Open posting to apply manually</button>
+				</form>
+			</div>
+			<p class="hint">Opening the posting takes you to the original listing to submit your tailored resume and cover letter yourself — the app never submits anything for you.</p>
+		</section>
+		@documentCard(match.ID, tailored)
+		@documentCard(match.ID, cover)
+	}
+}
+
+templ documentCard(matchID int64, doc store.GeneratedDocument) {
+	<section class="card">
+		<h2>{ docTypeLabel(doc.Type) }</h2>
+		if len(doc.FabricationFlags) > 0 {
+			<p class="warn">
+				⚠ Review needed — these terms appear in the draft but not in your resume:
+				<strong>{ joinFlags(doc.FabricationFlags) }</strong>. Remove or substantiate them before submitting.
+			</p>
+		}
+		<form method="post" action={ templ.SafeURL(docSavePath(matchID, doc.Type)) }>
+			<textarea name="content" rows="14">{ doc.ContentMarkdown }</textarea>
+			<div class="actions">
+				<button type="submit" class="primary">Save edits</button>
+				<a class="secondary btn" href={ templ.SafeURL(docDownloadPath(matchID, doc.Type, "pdf")) }>Download PDF</a>
+				<a class="secondary btn" href={ templ.SafeURL(docDownloadPath(matchID, doc.Type, "txt")) }>Download TXT</a>
+				<a class="secondary btn" href={ templ.SafeURL(docDownloadPath(matchID, doc.Type, "md")) }>Download MD</a>
+			</div>
+		</form>
+	</section>
+}

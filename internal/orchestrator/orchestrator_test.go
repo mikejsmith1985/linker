@@ -3,180 +3,173 @@ package orchestrator
 import (
 	"context"
 	"testing"
-	"time"
 
-	"github.com/mikejsmith1985/linker/internal/claude"
-	"github.com/mikejsmith1985/linker/internal/github"
+	"github.com/mikejsmith1985/linker/internal/jobsource"
+	"github.com/mikejsmith1985/linker/internal/scoring"
 	"github.com/mikejsmith1985/linker/internal/store"
 )
 
-// ---- fakes ----
-
+// fakeStore implements store.Store with just enough behavior for RunSearch.
 type fakeStore struct {
-	cursor       store.Cursor
-	savedCursor  store.Cursor
-	seen         map[string]bool // dedup keys
-	insertCalls  int
-	posts        map[int64]store.Post
-	events       map[int64]store.Event
-	nextPostID   int64
-	createdPosts []store.Post
+	resume        store.Resume
+	resumeMissing bool
+	prefs         store.Preferences
+	created       []store.MatchResult
+	finishedWith  map[string]string
+	finishStatus  store.SearchStatus
+	openingSeq    int64
 }
 
-func newFakeStore() *fakeStore {
-	return &fakeStore{seen: map[string]bool{}, posts: map[int64]store.Post{}, events: map[int64]store.Event{}}
+func (f *fakeStore) RunMigrations(context.Context) error                     { return nil }
+func (f *fakeStore) SaveResume(context.Context, store.Resume) (int64, error) { return 1, nil }
+func (f *fakeStore) GetActiveResume(context.Context) (store.Resume, error) {
+	if f.resumeMissing {
+		return store.Resume{}, store.ErrNotFound
+	}
+	return f.resume, nil
 }
-
-func key(e store.Event) string { return e.Repo + "|" + string(e.Type) + "|" + e.Ref }
-
-func (f *fakeStore) GetCursor(context.Context, string) (store.Cursor, error) { return f.cursor, nil }
-func (f *fakeStore) SaveCursor(_ context.Context, c store.Cursor) error {
-	f.savedCursor = c
+func (f *fakeStore) SavePreferences(context.Context, store.Preferences) (int64, error) { return 1, nil }
+func (f *fakeStore) GetPreferences(context.Context) (store.Preferences, error)         { return f.prefs, nil }
+func (f *fakeStore) CreateSearch(context.Context, int64, store.Preferences) (int64, error) {
+	return 100, nil
+}
+func (f *fakeStore) FinishSearch(_ context.Context, _ int64, status store.SearchStatus, health map[string]string) error {
+	f.finishStatus = status
+	f.finishedWith = health
 	return nil
 }
-func (f *fakeStore) InsertEvent(_ context.Context, e store.Event) (int64, bool, error) {
-	f.insertCalls++
-	if f.seen[key(e)] {
-		return 0, false, nil
+func (f *fakeStore) GetSearch(context.Context, int64) (store.Search, error) {
+	return store.Search{}, nil
+}
+func (f *fakeStore) UpsertOpening(context.Context, store.JobOpening) (int64, error) {
+	f.openingSeq++
+	return f.openingSeq, nil
+}
+func (f *fakeStore) FindScoredOpening(context.Context, string) (store.MatchResult, error) {
+	return store.MatchResult{}, store.ErrNotFound
+}
+func (f *fakeStore) CreateMatchResult(_ context.Context, m store.MatchResult) (int64, error) {
+	f.created = append(f.created, m)
+	return int64(len(f.created)), nil
+}
+func (f *fakeStore) ListQualifying(context.Context, int64) ([]store.MatchWithOpening, error) {
+	return nil, nil
+}
+func (f *fakeStore) GetMatchWithOpening(context.Context, int64) (store.MatchWithOpening, error) {
+	return store.MatchWithOpening{}, nil
+}
+func (f *fakeStore) SaveDocument(context.Context, store.GeneratedDocument) (int64, error) {
+	return 1, nil
+}
+func (f *fakeStore) GetDocument(context.Context, int64, store.DocType) (store.GeneratedDocument, error) {
+	return store.GeneratedDocument{}, store.ErrNotFound
+}
+func (f *fakeStore) UpdateDocumentContent(context.Context, int64, string) error { return nil }
+func (f *fakeStore) UpsertSelection(context.Context, int64, bool) error         { return nil }
+
+// fakeDiscoverer returns canned openings and health.
+type fakeDiscoverer struct {
+	openings []store.JobOpening
+	health   map[string]string
+}
+
+func (d fakeDiscoverer) Discover(context.Context, jobsource.Query) ([]store.JobOpening, map[string]string) {
+	return d.openings, d.health
+}
+
+// fakeScorer scores by a lookup keyed on opening title.
+type fakeScorer struct{ byTitle map[string]int }
+
+func (s fakeScorer) Score(_ context.Context, _ string, opening store.JobOpening, _ store.Preferences) (scoring.Score, error) {
+	v := s.byTitle[opening.Title]
+	return scoring.Score{Value: v, IsQualifying: v >= scoring.QualifyingScoreThreshold, GatePenalties: map[string]int{}}, nil
+}
+
+func TestRunSearchRanksAndFlagsQualifying(t *testing.T) {
+	st := &fakeStore{
+		resume: store.Resume{ID: 1, StructuredProfile: "Skills: Go, Postgres", RawText: "facts"},
+		prefs:  store.Preferences{WorkLocationPref: store.WorkRemote},
 	}
-	f.seen[key(e)] = true
-	id := int64(len(f.seen))
-	f.events[id] = e
-	return id, true, nil
-}
-func (f *fakeStore) GetEvent(_ context.Context, id int64) (store.Event, error) {
-	return f.events[id], nil
-}
-func (f *fakeStore) CreatePost(_ context.Context, p store.Post) (int64, error) {
-	f.nextPostID++
-	p.ID = f.nextPostID
-	f.posts[p.ID] = p
-	f.createdPosts = append(f.createdPosts, p)
-	return p.ID, nil
-}
-func (f *fakeStore) GetPost(_ context.Context, id int64) (store.Post, error) { return f.posts[id], nil }
-func (f *fakeStore) UpdatePostContent(_ context.Context, id int64, content, hashtags string) error {
-	p := f.posts[id]
-	p.Content, p.Hashtags = content, hashtags
-	f.posts[id] = p
-	return nil
-}
-func (f *fakeStore) SetPostStatus(context.Context, int64, store.PostStatus) error { return nil }
-func (f *fakeStore) MarkQueued(context.Context, int64, string) error              { return nil }
-func (f *fakeStore) ListDrafts(context.Context) ([]store.PostWithEvent, error)    { return nil, nil }
-func (f *fakeStore) ListHistory(context.Context) ([]store.PostWithEvent, error)   { return nil, nil }
-func (f *fakeStore) LastQueuedAt(context.Context) (*time.Time, error)             { return nil, nil }
-
-type fakeSource struct {
-	res github.Result
-}
-
-func (f *fakeSource) Poll(context.Context, string, store.Cursor) (github.Result, error) {
-	return f.res, nil
-}
-
-type fakeDrafter struct {
-	calls    int
-	lastIn   claude.DraftInput
-	out      claude.DraftOutput
-	forceErr error
-}
-
-func (d *fakeDrafter) Draft(_ context.Context, in claude.DraftInput) (claude.DraftOutput, error) {
-	d.calls++
-	d.lastIn = in
-	if d.forceErr != nil {
-		return claude.DraftOutput{}, d.forceErr
-	}
-	return d.out, nil
-}
-
-// ---- tests ----
-
-func TestTickDraftsNewEvents(t *testing.T) {
-	st := newFakeStore()
-	src := &fakeSource{res: github.Result{
-		Events: []store.Event{
-			{Repo: "me/r", Type: store.EventCommit, Ref: "a", Title: "feat"},
-			{Repo: "me/r", Type: store.EventRelease, Ref: "v1", Title: "rel"},
+	disc := fakeDiscoverer{
+		openings: []store.JobOpening{
+			{Title: "Weak", CanonicalKey: "k-weak"},
+			{Title: "Strong", CanonicalKey: "k-strong"},
 		},
-		Cursor:          store.Cursor{Repo: "me/r", LastCommitSHA: "a", LastReleaseTag: "v1"},
-		RepoDescription: "desc",
-		ReadmeExcerpt:   "readme",
-	}}
-	drafter := &fakeDrafter{out: claude.DraftOutput{Content: "post", Hashtags: "#x"}}
-	o := New(st, src, drafter, []string{"me/r"}, nil)
+		health: map[string]string{"adzuna": jobsource.HealthSucceeded, "broken": jobsource.HealthFailed},
+	}
+	scorer := fakeScorer{byTitle: map[string]int{"Weak": 40, "Strong": 90}}
 
-	if err := o.Tick(context.Background()); err != nil {
-		t.Fatalf("Tick: %v", err)
+	orch := New(st, disc, scorer, nil, nil, nil)
+	searchID, err := orch.RunSearch(context.Background())
+	if err != nil {
+		t.Fatalf("RunSearch: %v", err)
 	}
-	if drafter.calls != 2 {
-		t.Errorf("drafter called %d times, want 2", drafter.calls)
+	if searchID != 100 {
+		t.Errorf("searchID = %d, want 100", searchID)
 	}
-	if len(st.createdPosts) != 2 {
-		t.Fatalf("created %d posts, want 2", len(st.createdPosts))
+	if len(st.created) != 2 {
+		t.Fatalf("created %d match results, want 2", len(st.created))
 	}
-	if st.createdPosts[0].Content != "post" || st.createdPosts[0].Status != store.StatusDraft {
-		t.Errorf("unexpected post: %+v", st.createdPosts[0])
+	if st.created[0].Rank != 1 || st.created[0].Score != 90 {
+		t.Errorf("rank 1 = score %d, want 90", st.created[0].Score)
 	}
-	if st.savedCursor.LastCommitSHA != "a" {
-		t.Errorf("cursor not saved: %+v", st.savedCursor)
+	for _, m := range st.created {
+		if m.Score < scoring.QualifyingScoreThreshold && m.IsQualifying {
+			t.Errorf("score %d marked qualifying, want false", m.Score)
+		}
+		if m.Score >= scoring.QualifyingScoreThreshold && !m.IsQualifying {
+			t.Errorf("score %d not marked qualifying, want true", m.Score)
+		}
 	}
-	// repo context flows into the draft input
-	if drafter.lastIn.RepoDescription != "desc" || drafter.lastIn.ReadmeExcerpt != "readme" {
-		t.Errorf("repo context not passed to drafter: %+v", drafter.lastIn)
+	if st.finishStatus != store.SearchCompleted {
+		t.Errorf("status = %q, want completed", st.finishStatus)
+	}
+	if st.finishedWith["broken"] != jobsource.HealthFailed {
+		t.Errorf("health not recorded: %v", st.finishedWith)
 	}
 }
 
-func TestTickDeduplicates(t *testing.T) {
-	st := newFakeStore()
-	st.seen[key(store.Event{Repo: "me/r", Type: store.EventCommit, Ref: "a"})] = true // already seen
-	src := &fakeSource{res: github.Result{
-		Events: []store.Event{{Repo: "me/r", Type: store.EventCommit, Ref: "a", Title: "dup"}},
-		Cursor: store.Cursor{Repo: "me/r"},
-	}}
-	drafter := &fakeDrafter{}
-	o := New(st, src, drafter, []string{"me/r"}, nil)
+func TestRunSearchURLsUsesFactoryDiscoverer(t *testing.T) {
+	st := &fakeStore{
+		resume: store.Resume{ID: 1, StructuredProfile: "Skills: Go", RawText: "facts"},
+		prefs:  store.Preferences{WorkLocationPref: store.WorkRemote},
+	}
+	var gotURLs []string
+	factory := func(urls []string) Discoverer {
+		gotURLs = urls
+		return fakeDiscoverer{
+			openings: []store.JobOpening{{Title: "Pasted", CanonicalKey: "k-pasted"}},
+			health:   map[string]string{"pasted-url": jobsource.HealthSucceeded},
+		}
+	}
+	orch := New(st, fakeDiscoverer{}, fakeScorer{byTitle: map[string]int{"Pasted": 80}}, nil, factory, nil)
 
-	if err := o.Tick(context.Background()); err != nil {
-		t.Fatalf("Tick: %v", err)
+	if _, err := orch.RunSearchURLs(context.Background(), []string{"https://x/1"}); err != nil {
+		t.Fatalf("RunSearchURLs: %v", err)
 	}
-	if drafter.calls != 0 {
-		t.Errorf("drafter called %d times on duplicate, want 0", drafter.calls)
+	if len(gotURLs) != 1 || gotURLs[0] != "https://x/1" {
+		t.Errorf("factory got urls %v, want [https://x/1]", gotURLs)
 	}
-	if len(st.createdPosts) != 0 {
-		t.Errorf("created %d posts on duplicate, want 0", len(st.createdPosts))
+	if len(st.created) != 1 || st.created[0].Score != 80 {
+		t.Errorf("pasted opening not scored: %+v", st.created)
 	}
 }
 
-func TestTickDraftErrorStillSavesCursor(t *testing.T) {
-	st := newFakeStore()
-	src := &fakeSource{res: github.Result{
-		Events: []store.Event{{Repo: "me/r", Type: store.EventCommit, Ref: "a"}},
-		Cursor: store.Cursor{Repo: "me/r", LastCommitSHA: "a"},
-	}}
-	drafter := &fakeDrafter{forceErr: context.Canceled}
-	o := New(st, src, drafter, []string{"me/r"}, nil)
-
-	if err := o.Tick(context.Background()); err != nil {
-		t.Fatalf("Tick: %v", err)
-	}
-	if st.savedCursor.LastCommitSHA != "a" {
-		t.Error("cursor should still advance even if drafting failed")
+func TestRunSearchURLsUnavailableWithoutFactory(t *testing.T) {
+	st := &fakeStore{resume: store.Resume{ID: 1}, prefs: store.Preferences{}}
+	orch := New(st, fakeDiscoverer{}, fakeScorer{}, nil, nil, nil)
+	if _, err := orch.RunSearchURLs(context.Background(), []string{"x"}); err != ErrURLSearchUnavailable {
+		t.Errorf("err = %v, want ErrURLSearchUnavailable", err)
 	}
 }
 
-func TestRegenerate(t *testing.T) {
-	st := newFakeStore()
-	st.events[5] = store.Event{Repo: "me/r", Type: store.EventCommit, Ref: "a", Title: "feat"}
-	st.posts[9] = store.Post{ID: 9, EventID: 5, Content: "old"}
-	drafter := &fakeDrafter{out: claude.DraftOutput{Content: "fresh", Hashtags: "#new"}}
-	o := New(st, nil, drafter, nil, nil)
-
-	if err := o.Regenerate(context.Background(), 9); err != nil {
-		t.Fatalf("Regenerate: %v", err)
-	}
-	if got := st.posts[9]; got.Content != "fresh" || got.Hashtags != "#new" {
-		t.Errorf("post not updated: %+v", got)
+func TestRunSearchErrorsWithoutResume(t *testing.T) {
+	st := &fakeStore{resumeMissing: true}
+	orch := New(st, fakeDiscoverer{}, fakeScorer{}, nil, nil, nil)
+	if _, err := orch.RunSearch(context.Background()); err != ErrNoResume {
+		t.Errorf("err = %v, want ErrNoResume", err)
 	}
 }
+
+// compile-time check that fakeStore satisfies the full Store interface.
+var _ store.Store = (*fakeStore)(nil)

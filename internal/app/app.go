@@ -1,6 +1,6 @@
-// Package app wires linker's components together and runs the service: it
-// connects to Postgres, builds the drafting/publishing/polling pipeline, starts
-// the background poller, and serves the dashboard until the context is canceled.
+// Package app wires the job matcher together and runs the service: it connects
+// to Postgres, builds the resume-ingest / discovery / scoring pipeline, and
+// serves the dashboard until the context is canceled.
 package app
 
 import (
@@ -11,12 +11,13 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mikejsmith1985/linker/internal/buffer"
 	"github.com/mikejsmith1985/linker/internal/claude"
 	"github.com/mikejsmith1985/linker/internal/config"
-	"github.com/mikejsmith1985/linker/internal/github"
+	"github.com/mikejsmith1985/linker/internal/documents"
+	"github.com/mikejsmith1985/linker/internal/jobsource"
 	"github.com/mikejsmith1985/linker/internal/orchestrator"
-	"github.com/mikejsmith1985/linker/internal/persona"
+	"github.com/mikejsmith1985/linker/internal/resume"
+	"github.com/mikejsmith1985/linker/internal/scoring"
 	"github.com/mikejsmith1985/linker/internal/store"
 	"github.com/mikejsmith1985/linker/internal/web"
 
@@ -43,21 +44,29 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
-	systemPrompt, err := persona.Load(cfg.PersonaPromptPath)
-	if err != nil {
-		return fmt.Errorf("load persona: %w", err)
-	}
-
 	ac := anthropic.NewClient(option.WithAPIKey(cfg.AnthropicAPIKey))
-	drafter := claude.NewClient(&ac.Messages, cfg.ClaudeModel, systemPrompt)
+	llm := claude.NewClient(&ac.Messages, cfg.ClaudeModel)
 
-	source := github.New(cfg.GitHubToken)
-	publisher := SelectPublisher(cfg, log)
-	orch := orchestrator.New(st, source, drafter, cfg.GitHubRepos, log)
-	server := web.NewServer(st, publisher, orch, log)
+	ingestor := resume.NewService(llm, st)
+	scorer := scoring.NewScorer(llm)
+	docService := documents.NewService(documents.NewGenerator(llm), st)
 
-	// Background poller.
-	go pollLoop(ctx, cfg.PollInterval, orch.Tick, log)
+	sources := buildSources(cfg)
+	if cfg.EnableBrowserSource {
+		// The browser source self-gates on the user's saved acknowledgment, read
+		// fresh at each search so toggling it in preferences takes effect.
+		ackProvider := func() bool {
+			prefs, err := st.GetPreferences(context.Background())
+			return err == nil && prefs.BrowserAutomationAck
+		}
+		sources = append(sources, jobsource.NewBrowser(ackProvider, jobsource.NewPlaywrightRunner()))
+	}
+	registry := jobsource.NewRegistry(sources...)
+	urlFactory := func(urls []string) orchestrator.Discoverer {
+		return jobsource.NewRegistry(jobsource.NewURLPaste(urls, llm))
+	}
+	orch := orchestrator.New(st, registry, scorer, docService, urlFactory, log)
+	server := web.NewServer(st, ingestor, orch, docService, log)
 
 	httpSrv := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -73,9 +82,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 
 	log.Info("linker started",
 		"addr", cfg.HTTPAddr,
-		"repos", cfg.GitHubRepos,
-		"publisher", publisherName(cfg),
-		"poll_interval", cfg.PollInterval.String())
+		"adzuna", cfg.AdzunaConfigured())
 
 	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("http server: %w", err)
@@ -83,40 +90,13 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	return nil
 }
 
-// SelectPublisher returns a live Buffer client when credentials are configured,
-// otherwise a stub that records posts locally.
-func SelectPublisher(cfg config.Config, log *slog.Logger) buffer.Publisher {
-	if cfg.BufferConfigured() {
-		return buffer.NewLiveClient(cfg.BufferAccessToken, cfg.BufferProfileID)
+// buildSources assembles the enabled discovery sources. The Adzuna aggregator is
+// included when credentials are configured; user-pasted URLs and the opt-in
+// browser source are added in later increments.
+func buildSources(cfg config.Config) []jobsource.Source {
+	var sources []jobsource.Source
+	if cfg.AdzunaConfigured() {
+		sources = append(sources, jobsource.NewAdzuna(cfg.AdzunaAppID, cfg.AdzunaAppKey))
 	}
-	return buffer.NewStub(log)
-}
-
-func publisherName(cfg config.Config) string {
-	if cfg.BufferConfigured() {
-		return "buffer"
-	}
-	return "stub"
-}
-
-// pollLoop runs tick immediately, then on every interval, until ctx is done.
-// A tick error is logged but never stops the loop.
-func pollLoop(ctx context.Context, interval time.Duration, tick func(context.Context) error, log *slog.Logger) {
-	runOnce := func() {
-		if err := tick(ctx); err != nil {
-			log.Error("poll tick failed", "err", err)
-		}
-	}
-	runOnce()
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			runOnce()
-		}
-	}
+	return sources
 }

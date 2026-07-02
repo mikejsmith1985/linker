@@ -1,191 +1,410 @@
-// Package web serves the review dashboard: list drafts, edit them, approve
-// (which queues to the publisher), reject, regenerate, and view history. It is
-// rendered with templ and driven by HTMX fragment swaps.
+// Package web serves the single-user dashboard: upload a resume, set
+// preferences, run a search, and review scored matches. Rendered with templ.
+// It never submits an application anywhere — selecting a job only opens the
+// original posting for the user to submit manually.
 package web
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/mikejsmith1985/linker/internal/buffer"
+	"github.com/mikejsmith1985/linker/internal/orchestrator"
+	"github.com/mikejsmith1985/linker/internal/resume"
 	"github.com/mikejsmith1985/linker/internal/store"
 
 	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-pdf/fpdf"
 )
 
 // Actions are the orchestrator-backed operations the dashboard can trigger.
 type Actions interface {
-	Tick(ctx context.Context) error
-	Regenerate(ctx context.Context, postID int64) error
+	RunSearch(ctx context.Context) (int64, error)
+	RunSearchURLs(ctx context.Context, urls []string) (int64, error)
+}
+
+// ResumeIngestor validates, parses, and stores an uploaded resume.
+type ResumeIngestor interface {
+	Ingest(ctx context.Context, filename, format string, data []byte) (store.Resume, error)
+}
+
+// DocumentService generates (and caches) a tailored document for a match.
+type DocumentService interface {
+	EnsureDocument(ctx context.Context, matchID int64, docType store.DocType, opening store.JobOpening, resumeFacts string) (store.GeneratedDocument, error)
 }
 
 // Server holds dependencies for the HTTP handlers.
 type Server struct {
-	store   store.Store
-	pub     buffer.Publisher
-	actions Actions
-	log     *slog.Logger
+	store    store.Store
+	ingestor ResumeIngestor
+	actions  Actions
+	docs     DocumentService
+	log      *slog.Logger
 }
 
+// maxResumeBytes bounds an uploaded resume to a sane size.
+const maxResumeBytes = 10 << 20 // 10 MiB
+
 // NewServer builds the dashboard server. A nil logger falls back to default.
-func NewServer(st store.Store, pub buffer.Publisher, actions Actions, log *slog.Logger) *Server {
+func NewServer(st store.Store, ingestor ResumeIngestor, actions Actions, docs DocumentService, log *slog.Logger) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Server{store: st, pub: pub, actions: actions, log: log}
+	return &Server{store: st, ingestor: ingestor, actions: actions, docs: docs, log: log}
 }
 
 // Routes returns the configured HTTP handler.
 func (s *Server) Routes() http.Handler {
 	r := chi.NewRouter()
-	r.Get("/", s.handleDashboard)
-	r.Get("/history", s.handleHistory)
-	r.Post("/poll", s.handlePoll)
-	r.Post("/posts/{id}/save", s.handleSave)
-	r.Post("/posts/{id}/regenerate", s.handleRegenerate)
-	r.Post("/posts/{id}/reject", s.handleReject)
-	r.Post("/posts/{id}/approve", s.handleApprove)
+	r.Get("/", s.handleHome)
+	r.Get("/static/styles.css", s.handleCSS)
+	r.Post("/resume", s.handleUploadResume)
+	r.Get("/settings", s.handleSettings)
+	r.Post("/settings", s.handleSaveSettings)
+	r.Post("/search", s.handleSearch)
+	r.Post("/search/urls", s.handleSearchURLs)
+	r.Get("/search/{id}", s.handleSearchResults)
+	r.Get("/job/{id}", s.handleJob)
+	r.Post("/job/{id}/documents/{docType}", s.handleSaveDocument)
+	r.Get("/job/{id}/documents/{docType}/download", s.handleDownloadDocument)
+	r.Post("/job/{id}/select", s.handleSelect)
+	r.Post("/job/{id}/open", s.handleOpenPosting)
 	return r
 }
 
-func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	drafts, err := s.store.ListDrafts(r.Context())
-	if err != nil {
-		s.fail(w, "load drafts", err)
+func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
+	resume, err := s.store.GetActiveResume(r.Context())
+	hasResume := err == nil
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		s.fail(w, "load resume", err)
 		return
 	}
-	last, err := s.store.LastQueuedAt(r.Context())
-	if err != nil {
-		s.fail(w, "load cadence", err)
-		return
-	}
-	s.render(w, r, Dashboard(cadenceText(last), drafts))
+	s.render(w, r, Home(&resume, hasResume))
 }
 
-func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListHistory(r.Context())
-	if err != nil {
-		s.fail(w, "load history", err)
+func (s *Server) handleUploadResume(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(maxResumeBytes); err != nil {
+		http.Error(w, "could not read upload", http.StatusBadRequest)
 		return
 	}
-	s.render(w, r, History(items))
+	file, header, err := r.FormFile("resume")
+	if err != nil {
+		http.Error(w, "no resume file provided", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	format := resume.DetectFormat(header.Filename)
+	if format == "" {
+		http.Error(w, "unsupported file type; upload a PDF, DOCX, or TXT resume", http.StatusBadRequest)
+		return
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxResumeBytes))
+	if err != nil {
+		s.fail(w, "read resume", err)
+		return
+	}
+
+	if _, err := s.ingestor.Ingest(r.Context(), header.Filename, format, data); err != nil {
+		if errors.Is(err, resume.ErrUnreadable) {
+			http.Error(w, "that resume is empty or could not be read; please upload a different file", http.StatusBadRequest)
+			return
+		}
+		s.fail(w, "ingest resume", err)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
-	if err := s.actions.Tick(r.Context()); err != nil {
-		s.fail(w, "poll", err)
-		return
-	}
-	drafts, err := s.store.ListDrafts(r.Context())
+func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	prefs, err := s.store.GetPreferences(r.Context())
 	if err != nil {
-		s.fail(w, "load drafts", err)
+		s.fail(w, "load preferences", err)
 		return
 	}
-	s.render(w, r, DraftList(drafts))
+	s.render(w, r, Settings(prefs))
 }
 
-func (s *Server) handleSave(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "could not read form", http.StatusBadRequest)
+		return
+	}
+	ack := r.FormValue("browser_automation_ack") != ""
+	enableBrowser := r.FormValue("enable_browser") != ""
+	// Enabling the browser source is refused without the risk acknowledgment (FR-023).
+	if enableBrowser && !ack {
+		http.Error(w, "enabling browser automation requires acknowledging the terms-of-service and account-ban risk", http.StatusBadRequest)
+		return
+	}
+
+	prefs := store.Preferences{
+		RequiredSalaryMin:    atoiOrZero(r.FormValue("required_salary_min")),
+		SalaryCurrency:       "USD",
+		WorkLocationPref:     parseWorkLocation(r.FormValue("work_location_pref")),
+		WillingToTravel:      r.FormValue("willing_to_travel") != "",
+		WillingToRelocate:    r.FormValue("willing_to_relocate") != "",
+		BrowserAutomationAck: ack,
+	}
+	if enableBrowser && ack {
+		prefs.EnabledSources = []string{"browser"}
+	}
+	if _, err := s.store.SavePreferences(r.Context(), prefs); err != nil {
+		s.fail(w, "save preferences", err)
+		return
+	}
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+}
+
+func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	searchID, err := s.actions.RunSearch(r.Context())
+	if errors.Is(err, orchestrator.ErrNoResume) {
+		http.Error(w, "upload a resume before searching", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		s.fail(w, "run search", err)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/search/%d", searchID), http.StatusSeeOther)
+}
+
+// handleSearchURLs scores one or more user-pasted posting URLs (FR-021).
+func (s *Server) handleSearchURLs(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "could not read form", http.StatusBadRequest)
+		return
+	}
+	urls := splitURLs(r.FormValue("urls"))
+	if len(urls) == 0 {
+		http.Error(w, "paste at least one posting URL", http.StatusBadRequest)
+		return
+	}
+	searchID, err := s.actions.RunSearchURLs(r.Context(), urls)
+	if errors.Is(err, orchestrator.ErrNoResume) {
+		http.Error(w, "upload a resume before searching", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		s.fail(w, "run url search", err)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/search/%d", searchID), http.StatusSeeOther)
+}
+
+func (s *Server) handleSearchResults(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.idParam(w, r)
 	if !ok {
+		return
+	}
+	search, err := s.store.GetSearch(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "search not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		s.fail(w, "load search", err)
+		return
+	}
+	matches, err := s.store.ListQualifying(r.Context(), id)
+	if err != nil {
+		s.fail(w, "load matches", err)
+		return
+	}
+	s.render(w, r, Results(search, matches))
+}
+
+// handleJob renders one opening: score, explanation, and both tailored
+// documents — generating them on first view and caching thereafter (FR-007).
+// Documents are only available for qualifying (>=70) openings (FR-008).
+func (s *Server) handleJob(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.idParam(w, r)
+	if !ok {
+		return
+	}
+	match, err := s.store.GetMatchWithOpening(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "match not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		s.fail(w, "load match", err)
+		return
+	}
+	if !match.IsQualifying {
+		http.Error(w, "documents are only generated for qualifying matches (score 70+)", http.StatusForbidden)
+		return
+	}
+
+	facts := s.resumeFacts(r.Context())
+	tailored, err := s.docs.EnsureDocument(r.Context(), id, store.TailoredResume, match.Opening, facts)
+	if err != nil {
+		s.fail(w, "generate tailored resume", err)
+		return
+	}
+	cover, err := s.docs.EnsureDocument(r.Context(), id, store.CoverLetter, match.Opening, facts)
+	if err != nil {
+		s.fail(w, "generate cover letter", err)
+		return
+	}
+	s.render(w, r, Job(match, tailored, cover))
+}
+
+// handleSaveDocument stores a user's edit to a generated document (FR-010).
+func (s *Server) handleSaveDocument(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.idParam(w, r)
+	if !ok {
+		return
+	}
+	docType, ok := parseDocType(chi.URLParam(r, "docType"))
+	if !ok {
+		http.Error(w, "unknown document type", http.StatusBadRequest)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		s.fail(w, "parse form", err)
+		http.Error(w, "could not read form", http.StatusBadRequest)
 		return
 	}
-	content := r.FormValue("content")
-	hashtags := r.FormValue("hashtags")
-	if err := s.store.UpdatePostContent(r.Context(), id, content, hashtags); err != nil {
-		s.fail(w, "save post", err)
+	doc, err := s.store.GetDocument(r.Context(), id, docType)
+	if err != nil {
+		s.fail(w, "load document", err)
 		return
 	}
-	s.renderCard(w, r, id)
+	if err := s.store.UpdateDocumentContent(r.Context(), doc.ID, r.FormValue("content")); err != nil {
+		s.fail(w, "save document", err)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/job/%d", id), http.StatusSeeOther)
 }
 
-func (s *Server) handleRegenerate(w http.ResponseWriter, r *http.Request) {
+// handleDownloadDocument serves a generated document as txt, md, or pdf (FR-010).
+func (s *Server) handleDownloadDocument(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.idParam(w, r)
 	if !ok {
 		return
 	}
-	if err := s.actions.Regenerate(r.Context(), id); err != nil {
-		s.fail(w, "regenerate", err)
+	docType, ok := parseDocType(chi.URLParam(r, "docType"))
+	if !ok {
+		http.Error(w, "unknown document type", http.StatusBadRequest)
 		return
 	}
-	s.renderCard(w, r, id)
+	doc, err := s.store.GetDocument(r.Context(), id, docType)
+	if err != nil {
+		http.Error(w, "document not found", http.StatusNotFound)
+		return
+	}
+	base := fmt.Sprintf("%s-%d", docType, id)
+	switch r.URL.Query().Get("fmt") {
+	case "pdf":
+		s.writePDF(w, base, doc.ContentMarkdown)
+	case "md":
+		writeAttachment(w, base+".md", "text/markdown; charset=utf-8", []byte(doc.ContentMarkdown))
+	default:
+		writeAttachment(w, base+".txt", "text/plain; charset=utf-8", []byte(doc.ContentMarkdown))
+	}
 }
 
-func (s *Server) handleReject(w http.ResponseWriter, r *http.Request) {
+// handleSelect records that the user wants to pursue this opening (FR-011).
+func (s *Server) handleSelect(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.idParam(w, r)
 	if !ok {
 		return
 	}
-	if err := s.store.SetPostStatus(r.Context(), id, store.StatusRejected); err != nil {
-		s.fail(w, "reject", err)
+	if err := s.store.UpsertSelection(r.Context(), id, false); err != nil {
+		s.fail(w, "record selection", err)
 		return
 	}
-	s.render(w, r, Removed())
+	http.Redirect(w, r, fmt.Sprintf("/job/%d", id), http.StatusSeeOther)
 }
 
-func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
+// handleOpenPosting records that the posting was opened for manual submission
+// and redirects the user to the original posting. The system submits nothing on
+// the user's behalf (FR-012, FR-013, SC-006) — it only records and redirects.
+func (s *Server) handleOpenPosting(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.idParam(w, r)
 	if !ok {
 		return
 	}
-	post, err := s.store.GetPost(r.Context(), id)
+	match, err := s.store.GetMatchWithOpening(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "match not found", http.StatusNotFound)
+		return
+	}
 	if err != nil {
-		s.fail(w, "load post", err)
+		s.fail(w, "load match", err)
 		return
 	}
-	externalID, err := s.pub.Queue(r.Context(), post)
-	if err != nil {
-		s.fail(w, "queue to buffer", err)
+	if strings.TrimSpace(match.Opening.OriginalURL) == "" {
+		http.Error(w, "this posting is no longer reachable", http.StatusGone)
 		return
 	}
-	if err := s.store.MarkQueued(r.Context(), id, externalID); err != nil {
-		s.fail(w, "mark queued", err)
+	if err := s.store.UpsertSelection(r.Context(), id, true); err != nil {
+		s.fail(w, "record open", err)
 		return
 	}
-	view, err := s.postView(r.Context(), id)
-	if err != nil {
-		s.fail(w, "reload post", err)
-		return
-	}
-	s.render(w, r, QueuedCard(view))
+	http.Redirect(w, r, match.Opening.OriginalURL, http.StatusSeeOther)
 }
 
-// renderCard reloads a post + its event and renders the editable card.
-func (s *Server) renderCard(w http.ResponseWriter, r *http.Request, id int64) {
-	view, err := s.postView(r.Context(), id)
+// resumeFacts returns the active resume's raw text (the no-fabrication source),
+// or empty when no resume is active.
+func (s *Server) resumeFacts(ctx context.Context) string {
+	resume, err := s.store.GetActiveResume(ctx)
 	if err != nil {
-		s.fail(w, "reload post", err)
-		return
+		return ""
 	}
-	s.render(w, r, PostCard(view))
+	return resume.RawText
 }
 
-func (s *Server) postView(ctx context.Context, id int64) (store.PostWithEvent, error) {
-	post, err := s.store.GetPost(ctx, id)
-	if err != nil {
-		return store.PostWithEvent{}, err
+func (s *Server) writePDF(w http.ResponseWriter, base, markdown string) {
+	pdf := fpdf.New("P", "mm", "Letter", "")
+	pdf.SetMargins(20, 20, 20)
+	pdf.AddPage()
+	pdf.SetFont("Helvetica", "", 11)
+	for _, line := range strings.Split(markdown, "\n") {
+		// MultiCell wraps long lines; an empty line becomes vertical space.
+		if strings.TrimSpace(line) == "" {
+			pdf.Ln(4)
+			continue
+		}
+		pdf.MultiCell(0, 5, line, "", "", false)
 	}
-	ev, err := s.store.GetEvent(ctx, post.EventID)
-	if err != nil {
-		return store.PostWithEvent{}, err
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+base+".pdf\"")
+	if err := pdf.Output(w); err != nil {
+		s.log.Error("pdf output failed", "err", err)
 	}
-	return store.PostWithEvent{
-		Post:       post,
-		Repo:       ev.Repo,
-		EventType:  ev.Type,
-		EventTitle: ev.Title,
-		EventURL:   ev.URL,
-	}, nil
 }
+
+func writeAttachment(w http.ResponseWriter, filename, contentType string, body []byte) {
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	_, _ = w.Write(body)
+}
+
+func parseDocType(s string) (store.DocType, bool) {
+	switch s {
+	case string(store.TailoredResume):
+		return store.TailoredResume, true
+	case string(store.CoverLetter):
+		return store.CoverLetter, true
+	default:
+		return "", false
+	}
+}
+
+func (s *Server) handleCSS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = io.WriteString(w, styleCSS)
+}
+
+// ── helpers ──
 
 func (s *Server) idParam(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -208,46 +427,95 @@ func (s *Server) fail(w http.ResponseWriter, what string, err error) {
 	http.Error(w, what+": "+err.Error(), http.StatusInternalServerError)
 }
 
-// ---- template helpers ----
-
-func cardID(id int64) string { return fmt.Sprintf("post-%d", id) }
-
-func action(id int64, verb string) string { return fmt.Sprintf("/posts/%d/%s", id, verb) }
-
-func cadenceText(last *time.Time) string {
-	if last == nil {
-		return "Nothing queued yet — a good time to ship your first post."
+func atoiOrZero(s string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < 0 {
+		return 0
 	}
-	return "Last queued " + humanizeSince(time.Since(*last)) + " ago."
+	return n
 }
 
-func queuedWhen(p store.PostWithEvent) string {
-	if p.QueuedAt == nil {
-		return ""
-	}
-	return p.QueuedAt.Format("2006-01-02 15:04")
-}
-
-func excerptText(s string) string {
-	s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
-	const n = 160
-	if len(s) <= n {
-		return s
-	}
-	return strings.TrimSpace(s[:n]) + "…"
-}
-
-func humanizeSince(d time.Duration) string {
-	switch {
-	case d < time.Minute:
-		return "moments"
-	case d < time.Hour:
-		return fmt.Sprintf("%d min", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%d hr", int(d.Hours()))
+func parseWorkLocation(s string) store.WorkLocation {
+	switch s {
+	case "onsite":
+		return store.WorkOnsite
+	case "hybrid":
+		return store.WorkHybrid
+	case "remote":
+		return store.WorkRemote
 	default:
-		return fmt.Sprintf("%d days", int(d.Hours()/24))
+		return store.WorkRemote
 	}
+}
+
+// ── templ view helpers ──
+
+func intAttr(n int) string { return strconv.Itoa(n) }
+
+func scoreText(n int) string { return strconv.Itoa(n) }
+
+func salaryText(o store.JobOpening) string {
+	switch {
+	case o.SalaryMin > 0 && o.SalaryMax > 0:
+		return fmt.Sprintf("$%d–$%d", o.SalaryMin, o.SalaryMax)
+	case o.SalaryMax > 0:
+		return fmt.Sprintf("up to $%d", o.SalaryMax)
+	case o.SalaryMin > 0:
+		return fmt.Sprintf("from $%d", o.SalaryMin)
+	default:
+		return "salary not stated"
+	}
+}
+
+func sourcesText(o store.JobOpening) string {
+	if len(o.SourceNames) == 0 {
+		return "unknown source"
+	}
+	return strings.Join(o.SourceNames, ", ")
+}
+
+func jobPath(matchID int64) string { return fmt.Sprintf("/job/%d", matchID) }
+
+func docSavePath(matchID int64, docType store.DocType) string {
+	return fmt.Sprintf("/job/%d/documents/%s", matchID, docType)
+}
+
+func docDownloadPath(matchID int64, docType store.DocType, format string) string {
+	return fmt.Sprintf("/job/%d/documents/%s/download?fmt=%s", matchID, docType, format)
+}
+
+func docTypeLabel(docType store.DocType) string {
+	if docType == store.CoverLetter {
+		return "Cover letter"
+	}
+	return "Tailored resume"
+}
+
+func joinFlags(flags []string) string { return strings.Join(flags, ", ") }
+
+// browserEnabled reports whether the browser source is in the enabled set.
+func browserEnabled(prefs store.Preferences) bool {
+	for _, name := range prefs.EnabledSources {
+		if name == "browser" {
+			return true
+		}
+	}
+	return false
+}
+
+// splitURLs parses a textarea of pasted URLs separated by newlines, spaces, or
+// commas into a clean list.
+func splitURLs(raw string) []string {
+	fields := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == '\n' || r == '\r' || r == ' ' || r == '\t' || r == ','
+	})
+	var out []string
+	for _, field := range fields {
+		if trimmed := strings.TrimSpace(field); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 const styleCSS = `
@@ -258,27 +526,31 @@ body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI,
 .brand { font-weight:700; letter-spacing:.02em; }
 nav a { color:var(--muted); text-decoration:none; margin-right:1rem; }
 nav a:hover { color:var(--ink); }
-main { max-width:760px; margin:0 auto; padding:1.5rem; }
-.cadence { display:flex; align-items:center; gap:1rem; color:var(--muted); margin-bottom:1.25rem; }
+main { max-width:820px; margin:0 auto; padding:1.5rem; }
+h2 { margin:0 0 .6rem; font-size:1.05rem; }
 .card { background:var(--card); border:1px solid #2a2e38; border-radius:12px; padding:1rem 1.1rem; margin-bottom:1rem; }
-.card.queued { opacity:.8; }
-.meta { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; font-size:.9rem; color:var(--muted); margin-bottom:.6rem; }
-.badge { background:#272b35; padding:.1rem .5rem; border-radius:999px; font-size:.75rem; }
-.badge.ok { background:rgba(22,163,74,.18); color:#4ade80; }
+.card.empty { text-align:center; }
+.meta { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; margin-bottom:.4rem; }
+.score { background:var(--accent); color:#fff; font-weight:700; border-radius:8px; padding:.15rem .55rem; }
+.badge { background:#272b35; padding:.1rem .5rem; border-radius:999px; font-size:.75rem; color:var(--muted); }
 .src { color:var(--accent); text-decoration:none; }
-textarea { width:100%; background:#0d0f14; color:var(--ink); border:1px solid #2a2e38; border-radius:8px; padding:.7rem; font:inherit; resize:vertical; }
-.tags { width:100%; margin-top:.5rem; background:#0d0f14; color:var(--ink); border:1px solid #2a2e38; border-radius:8px; padding:.5rem; font:inherit; }
-.actions { display:flex; gap:.5rem; flex-wrap:wrap; margin-top:.7rem; }
+.explain { margin:.3rem 0 0; }
+.hint, .empty, .health li { color:var(--muted); }
+.ok { color:#4ade80; }
+.health { list-style:none; padding:0; display:flex; gap:.8rem; flex-wrap:wrap; margin:0; }
+label { display:block; margin:.6rem 0; }
+label.check { display:flex; align-items:center; gap:.5rem; }
+input[type=number], select { background:#0d0f14; color:var(--ink); border:1px solid #2a2e38; border-radius:8px; padding:.5rem; font:inherit; margin-left:.5rem; }
+.actions { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin-top:.7rem; }
 button { cursor:pointer; border:none; border-radius:8px; padding:.5rem .8rem; font:inherit; }
+button:disabled { opacity:.5; cursor:not-allowed; }
 .primary { background:var(--accent); color:#fff; }
 .secondary { background:#272b35; color:var(--ink); }
-.danger { background:transparent; color:var(--danger); border:1px solid var(--danger); }
-.poll { background:#272b35; color:var(--ink); }
-.empty, .hint { color:var(--muted); }
-.history { list-style:none; padding:0; }
-.history li { background:var(--card); border:1px solid #2a2e38; border-radius:12px; padding:.8rem 1rem; margin-bottom:.7rem; }
-.excerpt { color:var(--muted); margin:.3rem 0 0; }
-.when { margin-left:auto; }
-.htmx-indicator { opacity:0; transition:opacity .2s; }
-.htmx-request .htmx-indicator, .htmx-request.htmx-indicator { opacity:1; }
+.btn { display:inline-block; text-decoration:none; border-radius:8px; padding:.5rem .8rem; }
+a.primary.btn { color:#fff; }
+a.secondary.btn { color:var(--ink); }
+textarea { width:100%; background:#0d0f14; color:var(--ink); border:1px solid #2a2e38; border-radius:8px; padding:.7rem; font:ui-monospace,monospace; font-size:.85rem; resize:vertical; }
+.warn { background:rgba(239,68,68,.12); border:1px solid var(--danger); color:#fca5a5; padding:.6rem .8rem; border-radius:8px; }
+.danger-zone { border:1px solid var(--danger); border-radius:8px; padding:.5rem .8rem; margin:1rem 0; }
+.danger-zone legend { color:var(--danger); padding:0 .4rem; }
 `

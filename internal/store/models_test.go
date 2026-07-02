@@ -2,33 +2,30 @@ package store
 
 import "testing"
 
-// TestEventTypeValues guards the string values of event types, which double as
-// the persisted `event_type` column and the dedup key — changing them silently
-// would orphan existing rows.
-func TestEventTypeValues(t *testing.T) {
-	cases := map[EventType]string{
-		EventCommit:  "commit",
-		EventRelease: "release",
-		EventReadme:  "readme",
+// TestWorkLocationValues guards the persisted work_location values, which are
+// compared during scoring's work-location gate — changing them silently would
+// break gating against existing rows.
+func TestWorkLocationValues(t *testing.T) {
+	cases := map[WorkLocation]string{
+		WorkOnsite:  "onsite",
+		WorkHybrid:  "hybrid",
+		WorkRemote:  "remote",
+		WorkUnknown: "unknown",
 	}
-	for typ, want := range cases {
-		if string(typ) != want {
-			t.Errorf("EventType %v = %q, want %q", typ, string(typ), want)
+	for loc, want := range cases {
+		if string(loc) != want {
+			t.Errorf("WorkLocation %v = %q, want %q", loc, string(loc), want)
 		}
 	}
 }
 
-// TestPostStatusValues guards the persisted lifecycle values.
-func TestPostStatusValues(t *testing.T) {
-	cases := map[PostStatus]string{
-		StatusDraft:     "draft",
-		StatusQueued:    "queued",
-		StatusPublished: "published",
-		StatusRejected:  "rejected",
+// TestDocTypeValues guards the persisted doc_type values used as part of the
+// (match_result_id, doc_type) uniqueness key.
+func TestDocTypeValues(t *testing.T) {
+	if string(TailoredResume) != "tailored_resume" {
+		t.Errorf("TailoredResume = %q", TailoredResume)
 	}
-	for status, want := range cases {
-		if string(status) != want {
-			t.Errorf("PostStatus %v = %q, want %q", status, string(status), want)
-		}
+	if string(CoverLetter) != "cover_letter" {
+		t.Errorf("CoverLetter = %q", CoverLetter)
 	}
 }

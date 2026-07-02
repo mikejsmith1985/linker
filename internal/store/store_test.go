@@ -19,141 +19,115 @@ func newMock(t *testing.T) pgxmock.PgxPoolIface {
 	return mock
 }
 
-func TestInsertEventInserted(t *testing.T) {
+func TestSaveResumeDeactivatesThenInserts(t *testing.T) {
 	mock := newMock(t)
 	s := New(mock)
 
-	mock.ExpectQuery("INSERT INTO activity_events").
-		WithArgs("o/r", "commit", "abc", "t", "b", "u").
-		WillReturnRows(pgxmock.NewRows([]string{"id"}).AddRow(int64(7)))
-
-	id, inserted, err := s.InsertEvent(context.Background(), Event{
-		Repo: "o/r", Type: EventCommit, Ref: "abc", Title: "t", Body: "b", URL: "u",
-	})
-	if err != nil {
-		t.Fatalf("InsertEvent: %v", err)
-	}
-	if !inserted || id != 7 {
-		t.Fatalf("got id=%d inserted=%v, want 7,true", id, inserted)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("expectations: %v", err)
-	}
-}
-
-func TestInsertEventDuplicate(t *testing.T) {
-	mock := newMock(t)
-	s := New(mock)
-
-	mock.ExpectQuery("INSERT INTO activity_events").
-		WithArgs("o/r", "commit", "abc", "", "", "").
-		WillReturnError(pgx.ErrNoRows)
-
-	id, inserted, err := s.InsertEvent(context.Background(), Event{
-		Repo: "o/r", Type: EventCommit, Ref: "abc",
-	})
-	if err != nil {
-		t.Fatalf("InsertEvent returned error on duplicate: %v", err)
-	}
-	if inserted || id != 0 {
-		t.Fatalf("got id=%d inserted=%v, want 0,false", id, inserted)
-	}
-}
-
-func TestMarkQueued(t *testing.T) {
-	mock := newMock(t)
-	s := New(mock)
-
-	mock.ExpectExec("UPDATE posts SET status = 'queued'").
-		WithArgs(int64(3), "buf_1").
+	mock.ExpectExec("UPDATE resumes SET is_active = FALSE").
 		WillReturnResult(pgxmock.NewResult("UPDATE", 1))
+	mock.ExpectQuery("INSERT INTO resumes").
+		WithArgs("cv.pdf", "pdf", "raw text", "profile").
+		WillReturnRows(pgxmock.NewRows([]string{"id"}).AddRow(int64(3)))
 
-	if err := s.MarkQueued(context.Background(), 3, "buf_1"); err != nil {
-		t.Fatalf("MarkQueued: %v", err)
+	id, err := s.SaveResume(context.Background(), Resume{
+		OriginalFilename: "cv.pdf", Format: "pdf", RawText: "raw text", StructuredProfile: "profile",
+	})
+	if err != nil {
+		t.Fatalf("SaveResume: %v", err)
+	}
+	if id != 3 {
+		t.Errorf("id = %d, want 3", id)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("expectations: %v", err)
 	}
 }
 
-func TestGetCursorNoRows(t *testing.T) {
+func TestGetActiveResumeNotFound(t *testing.T) {
 	mock := newMock(t)
 	s := New(mock)
 
-	mock.ExpectQuery("FROM repo_cursors").
-		WithArgs("o/r").
+	mock.ExpectQuery("SELECT id, original_filename").
 		WillReturnError(pgx.ErrNoRows)
 
-	c, err := s.GetCursor(context.Background(), "o/r")
-	if err != nil {
-		t.Fatalf("GetCursor: %v", err)
-	}
-	if c.Repo != "o/r" || c.LastCommitSHA != "" {
-		t.Fatalf("got %+v, want zero cursor for o/r", c)
+	if _, err := s.GetActiveResume(context.Background()); err != ErrNotFound {
+		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
 
-func TestLastQueuedAtNull(t *testing.T) {
+func TestCreateMatchResult(t *testing.T) {
 	mock := newMock(t)
 	s := New(mock)
 
-	mock.ExpectQuery("SELECT max\\(queued_at\\) FROM posts").
-		WillReturnRows(pgxmock.NewRows([]string{"max"}).AddRow((*time.Time)(nil)))
+	mock.ExpectQuery("INSERT INTO match_results").
+		WithArgs(int64(5), int64(9), 82, "great fit", `{"salary":0}`, true, 1).
+		WillReturnRows(pgxmock.NewRows([]string{"id"}).AddRow(int64(11)))
 
-	got, err := s.LastQueuedAt(context.Background())
+	id, err := s.CreateMatchResult(context.Background(), MatchResult{
+		SearchID: 5, JobOpeningID: 9, Score: 82, ScoreExplanation: "great fit",
+		GatePenalties: map[string]int{"salary": 0}, IsQualifying: true, Rank: 1,
+	})
 	if err != nil {
-		t.Fatalf("LastQueuedAt: %v", err)
+		t.Fatalf("CreateMatchResult: %v", err)
 	}
-	if got != nil {
-		t.Fatalf("got %v, want nil", got)
+	if id != 11 {
+		t.Errorf("id = %d, want 11", id)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("expectations: %v", err)
 	}
 }
 
-func TestLastQueuedAtValue(t *testing.T) {
+func TestListQualifyingScansJoin(t *testing.T) {
 	mock := newMock(t)
 	s := New(mock)
 
-	tm := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
-	mock.ExpectQuery("SELECT max\\(queued_at\\) FROM posts").
-		WillReturnRows(pgxmock.NewRows([]string{"max"}).AddRow(&tm))
-
-	got, err := s.LastQueuedAt(context.Background())
-	if err != nil {
-		t.Fatalf("LastQueuedAt: %v", err)
+	cols := []string{
+		"id", "search_id", "job_opening_id", "score", "score_explanation",
+		"gate_penalties", "is_qualifying", "rank",
+		"o_id", "canonical_key", "title", "employer", "location", "work_location_type",
+		"salary_min", "salary_max", "description", "source_names", "original_url", "discovered_at",
 	}
-	if got == nil || !got.Equal(tm) {
-		t.Fatalf("got %v, want %v", got, tm)
-	}
-}
-
-func TestListDrafts(t *testing.T) {
-	mock := newMock(t)
-	s := New(mock)
-
 	now := time.Now()
-	mock.ExpectQuery("FROM posts p JOIN activity_events e").
-		WillReturnRows(pgxmock.NewRows([]string{
-			"id", "event_id", "content", "hashtags", "status", "external_id",
-			"created_at", "updated_at", "queued_at",
-			"repo", "event_type", "title", "url",
-		}).AddRow(
-			int64(1), int64(2), "hello", "#go", "draft", "",
-			now, now, (*time.Time)(nil),
-			"o/r", "commit", "Fix bug", "http://x",
+	mock.ExpectQuery("FROM match_results m JOIN job_openings o").
+		WithArgs(int64(5)).
+		WillReturnRows(pgxmock.NewRows(cols).AddRow(
+			int64(11), int64(5), int64(9), 82, "great fit",
+			[]byte(`{"salary":0}`), true, 1,
+			int64(9), "acme|engineer|remote", "Engineer", "Acme", "Remote", "remote",
+			0, 0, "desc", []byte(`["adzuna"]`), "https://x", now,
 		))
 
-	drafts, err := s.ListDrafts(context.Background())
+	out, err := s.ListQualifying(context.Background(), 5)
 	if err != nil {
-		t.Fatalf("ListDrafts: %v", err)
+		t.Fatalf("ListQualifying: %v", err)
 	}
-	if len(drafts) != 1 {
-		t.Fatalf("got %d drafts, want 1", len(drafts))
+	if len(out) != 1 {
+		t.Fatalf("got %d results, want 1", len(out))
 	}
-	d := drafts[0]
-	if d.ID != 1 || d.Content != "hello" || d.Repo != "o/r" || d.EventType != EventCommit {
-		t.Fatalf("unexpected draft: %+v", d)
+	if out[0].Score != 82 || out[0].Opening.Employer != "Acme" {
+		t.Errorf("unexpected result: %+v", out[0])
+	}
+	if len(out[0].Opening.SourceNames) != 1 || out[0].Opening.SourceNames[0] != "adzuna" {
+		t.Errorf("SourceNames = %v, want [adzuna]", out[0].Opening.SourceNames)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("expectations: %v", err)
+	}
+}
+
+func TestGetPreferencesDefaultsWhenEmpty(t *testing.T) {
+	mock := newMock(t)
+	s := New(mock)
+
+	mock.ExpectQuery("FROM preferences ORDER BY id DESC").
+		WillReturnError(pgx.ErrNoRows)
+
+	p, err := s.GetPreferences(context.Background())
+	if err != nil {
+		t.Fatalf("GetPreferences: %v", err)
+	}
+	if p.WorkLocationPref != WorkRemote || p.SalaryCurrency != "USD" {
+		t.Errorf("defaults = %+v, want remote/USD", p)
 	}
 }

@@ -1,0 +1,140 @@
+package web
+
+import "github.com/mikejsmith1985/linker/internal/store"
+
+// Home shows the active resume status, a search trigger, and a preferences link.
+templ Home(resume *store.Resume, hasResume bool) {
+	@Layout("linker — matches") {
+		<section class="card">
+			<h2>Your resume</h2>
+			if hasResume {
+				<p class="ok">Active resume: <strong>{ resume.OriginalFilename }</strong> ({ resume.Format })</p>
+			} else {
+				<p class="hint">No resume yet. Upload one to start matching jobs to your skills.</p>
+			}
+			<form method="post" action="/resume" enctype="multipart/form-data" class="actions">
+				<input type="file" name="resume" accept=".pdf,.docx,.txt"/>
+				<button type="submit" class="secondary">Upload resume</button>
+			</form>
+		</section>
+		<section class="card">
+			<h2>Find matching jobs</h2>
+			<p class="hint">Searches your enabled job sources, scores each opening 1–100 against your resume and preferences, and shows only strong matches (70+).</p>
+			<form method="post" action="/search" class="actions">
+				<button type="submit" class="primary" disabled?={ !hasResume }>Run search</button>
+			</form>
+			if !hasResume {
+				<p class="hint">Upload a resume first.</p>
+			}
+		</section>
+		<section class="card">
+			<h2>Or score specific postings</h2>
+			<p class="hint">Paste one or more job posting URLs (one per line). Each is fetched, scored, and — if it reaches 70 — given tailored documents, just like a discovered match.</p>
+			<form method="post" action="/search/urls">
+				<textarea name="urls" rows="4" placeholder="https://…/job/123&#10;https://…/careers/456"></textarea>
+				<div class="actions">
+					<button type="submit" class="secondary" disabled?={ !hasResume }>Score pasted URLs</button>
+				</div>
+			</form>
+		</section>
+	}
+}
+
+// Settings renders the preferences form (the scoring inputs).
+templ Settings(prefs store.Preferences) {
+	@Layout("linker — preferences") {
+		<section class="card">
+			<h2>Search preferences</h2>
+			<p class="hint">Salary and work-location act as strong gates; travel and relocation are softer factors.</p>
+			<form method="post" action="/settings">
+				<label>Required minimum salary (annual)
+					<input type="number" name="required_salary_min" value={ intAttr(prefs.RequiredSalaryMin) } min="0"/>
+				</label>
+				<label>Work location
+					<select name="work_location_pref">
+						@option("remote", "Remote", prefs.WorkLocationPref)
+						@option("hybrid", "Hybrid", prefs.WorkLocationPref)
+						@option("onsite", "Onsite", prefs.WorkLocationPref)
+					</select>
+				</label>
+				<label class="check">
+					<input type="checkbox" name="willing_to_travel" checked?={ prefs.WillingToTravel }/> Willing to travel
+				</label>
+				<label class="check">
+					<input type="checkbox" name="willing_to_relocate" checked?={ prefs.WillingToRelocate }/> Willing to relocate
+				</label>
+				<fieldset class="danger-zone">
+					<legend>Browser automation (advanced, opt-in)</legend>
+					<p class="warn">
+						Automated browsing of sites without a permitted API (including LinkedIn)
+						may violate their terms of service and can get your account restricted or
+						banned. It is off by default and never runs until you acknowledge this risk.
+					</p>
+					<label class="check">
+						<input type="checkbox" name="browser_automation_ack" checked?={ prefs.BrowserAutomationAck }/>
+						I understand and accept the terms-of-service and account-ban risk.
+					</label>
+					<label class="check">
+						<input type="checkbox" name="enable_browser" checked?={ browserEnabled(prefs) }/>
+						Enable the browser source (requires the acknowledgment above).
+					</label>
+				</fieldset>
+				<div class="actions">
+					<button type="submit" class="primary">Save preferences</button>
+				</div>
+			</form>
+		</section>
+	}
+}
+
+templ option(value, label string, selected store.WorkLocation) {
+	if string(selected) == value {
+		<option value={ value } selected>{ label }</option>
+	} else {
+		<option value={ value }>{ label }</option>
+	}
+}
+
+// Results renders the single consolidated view of qualifying matches plus the
+// per-source health of the search.
+templ Results(search store.Search, matches []store.MatchWithOpening) {
+	@Layout("linker — results") {
+		<section class="card">
+			<h2>Source status</h2>
+			<ul class="health">
+				for name, status := range search.SourceHealth {
+					<li><span class="badge">{ name }</span> { status }</li>
+				}
+			</ul>
+		</section>
+		if len(matches) == 0 {
+			<section class="card empty">
+				<h2>No qualifying matches</h2>
+				<p class="hint">No opening scored 70 or above. Try broadening your preferences (lower the salary floor or widen the work-location).</p>
+			</section>
+		} else {
+			for _, m := range matches {
+				@matchCard(m)
+			}
+		}
+	}
+}
+
+templ matchCard(m store.MatchWithOpening) {
+	<section class="card">
+		<div class="meta">
+			<span class="score">{ scoreText(m.Score) }</span>
+			<strong>{ m.Opening.Title }</strong>
+			<span>· { m.Opening.Employer }</span>
+			<span class="badge">{ string(m.Opening.WorkLocationType) }</span>
+		</div>
+		<p class="hint">{ m.Opening.Location } · { salaryText(m.Opening) } · via { sourcesText(m.Opening) }</p>
+		<p class="explain">{ m.ScoreExplanation }</p>
+		<div class="actions">
+			<a class="primary btn" href={ templ.SafeURL(jobPath(m.ID)) }>View &amp; tailor</a>
+			<form method="post" action={ templ.SafeURL(jobPath(m.ID) + "/open") }>
+				<button type="submit" class="secondary">Open posting</button>
+			</form>
+		</div>
+	</section>
+}

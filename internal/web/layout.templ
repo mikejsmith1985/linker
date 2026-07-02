@@ -1,5 +1,8 @@
 package web
 
+// Layout is the shared page chrome. The stylesheet is served as a cacheable
+// asset at /static/styles.css and referenced with a <link> — never inlined as
+// raw text inside a <style> element, which templ would emit unevaluated.
 templ Layout(title string) {
 	<!DOCTYPE html>
 	<html lang="en">
@@ -7,17 +10,14 @@ templ Layout(title string) {
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
 			<title>{ title }</title>
-			<script src="https://unpkg.com/htmx.org@2.0.3"></script>
-			<style>
-				@templ.Raw(styleCSS)
-			</style>
+			<link rel="stylesheet" href="/static/styles.css"/>
 		</head>
 		<body>
 			<header class="topbar">
-				<div class="brand">linker</div>
+				<span class="brand">linker</span>
 				<nav>
-					<a href="/">Drafts</a>
-					<a href="/history">History</a>
+					<a href="/">Matches</a>
+					<a href="/settings">Preferences</a>
 				</nav>
 			</header>
 			<main>
