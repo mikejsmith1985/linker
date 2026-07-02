@@ -90,11 +90,11 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	return nil
 }
 
-// buildSources assembles the enabled discovery sources. The Adzuna aggregator is
-// included when credentials are configured; user-pasted URLs and the opt-in
-// browser source are added in later increments.
+// buildSources assembles the enabled discovery sources. Remotive is the default
+// and needs no credentials, so it is always included; the Adzuna aggregator is
+// added when its credentials are configured.
 func buildSources(cfg config.Config) []jobsource.Source {
-	var sources []jobsource.Source
+	sources := []jobsource.Source{jobsource.NewRemotive()}
 	if cfg.AdzunaConfigured() {
 		sources = append(sources, jobsource.NewAdzuna(cfg.AdzunaAppID, cfg.AdzunaAppKey))
 	}
