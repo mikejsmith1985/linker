@@ -26,6 +26,7 @@ services:
       CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-opus-4-8}
       ADZUNA_APP_ID: ${ADZUNA_APP_ID:-}
       ADZUNA_APP_KEY: ${ADZUNA_APP_KEY:-}
+      RAPIDAPI_KEY: ${RAPIDAPI_KEY:-}
       ENABLE_BROWSER_SOURCE: ${ENABLE_BROWSER_SOURCE:-}
       HTTP_ADDR: ":8080"
     ports:
