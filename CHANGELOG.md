@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     and README for one-command local setup.
 
 ### Changed
+- Added **Remotive** as the default, key-free job source (remote roles) and made
+  Adzuna optional — the app now discovers jobs out of the box with only an
+  `ANTHROPIC_API_KEY` (`internal/jobsource` Remotive adapter).
 - **Repurposed `linker` from a GitHub→LinkedIn post drafter into a resume-driven
   job matcher** (spec `specs/001-resume-job-matcher/`). MVP (User Story 1) delivered:
   - Removed the post-drafter domain (`internal/github`, `internal/buffer`,

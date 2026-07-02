@@ -36,15 +36,16 @@ resume + preferences
 - **Documents** are generated for the top 3 scores up front and on first open for the
   rest (then cached). A verification pass flags any skill or term the draft claims that
   your resume never mentions — so you never unknowingly submit a fabricated claim.
-- **Sources** are pluggable: the Adzuna aggregator API by default, one or more
-  posting URLs you paste, and an opt-in Playwright browser source for boards without a
-  permitted API.
+- **Sources** are pluggable: **Remotive** (remote-only, no API key) by default, the
+  Adzuna aggregator API when you add credentials, one or more posting URLs you paste,
+  and an opt-in Playwright browser source for boards without a permitted API.
 
 ## Quick start
 
 ```sh
 cp .env.example .env
-# Edit .env: set ANTHROPIC_API_KEY, and ADZUNA_APP_ID / ADZUNA_APP_KEY for discovery.
+# Edit .env: set ANTHROPIC_API_KEY. That's the only required key — the default
+# Remotive source needs none.
 docker compose up --build
 ```
 
@@ -57,11 +58,10 @@ Then open <http://localhost:8080>: upload your resume, set your preferences, and
 |---|---|
 | `DATABASE_URL` | Postgres connection (set for you under docker compose) |
 | `ANTHROPIC_API_KEY` | Scoring and document generation with Claude |
-| `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` | The default Adzuna job source (free at developer.adzuna.com) |
+| `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` | *Optional* — adds the Adzuna source (free at developer.adzuna.com) alongside Remotive |
 
-Without Adzuna credentials the aggregator source is skipped and reported as
-unavailable — you can still paste posting URLs to score them. See `.env.example` for
-all options.
+The default **Remotive** source needs no credentials and returns remote roles out of
+the box. Adzuna is added only when its keys are set. See `.env.example` for all options.
 
 ## Opt-in browser automation (advanced)
 
@@ -108,8 +108,8 @@ internal/config        env-only configuration
 internal/store         Postgres persistence (resumes, preferences, searches,
                        openings, match results, documents, selections)
 internal/resume        PDF/DOCX/TXT extraction + LLM profile structuring
-internal/jobsource     source interface, de-dup registry, Adzuna / pasted-URL /
-                       opt-in browser adapters
+internal/jobsource     source interface, de-dup registry, Remotive / Adzuna /
+                       pasted-URL / opt-in browser adapters
 internal/scoring       deterministic preference gate + LLM skill-fit → 1–100
 internal/documents     no-fabrication tailored resume + cover letter generation
 internal/claude        Claude-backed LLM interface (+ fake for tests)
