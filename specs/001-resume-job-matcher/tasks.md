@@ -170,12 +170,12 @@
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T047 [P] Update `CHANGELOG.md` describing the pivot to the job matcher (Article VI)
-- [ ] T048 [P] Rewrite `README.md` to describe the resume-driven job matcher (replace the post-drafter description)
-- [ ] T049 Update `docker-compose.yml` and `Dockerfile` for the new env keys (drop GitHub/Buffer, add Adzuna)
-- [ ] T050 Run `make vet` and `make test`; ensure all unit (<10ms) and integration suites are green
-- [ ] T051 Execute `quickstart.md` validation scenarios 1–9 and confirm each passes by observation (Article X)
-- [ ] T051a Verify the plan's performance targets by observation (**C2**): a full search completes in <~60s, on-demand single-document generation returns in <~10s, and HTMX partial renders (excluding LLM calls) return in <~300ms; record the measured figures alongside the T051 validation
+- [x] T047 [P] Update `CHANGELOG.md` describing the pivot to the job matcher (Article VI)
+- [x] T048 [P] Rewrite `README.md` to describe the resume-driven job matcher (replace the post-drafter description)
+- [x] T049 Update `docker-compose.yml` and `Dockerfile` for the new env keys (drop GitHub/Buffer, add Adzuna)
+- [x] T050 Run `make vet` and `make test`; ensure all unit (<10ms) and integration suites are green
+- [ ] T051 Execute `quickstart.md` validation scenarios 1–9 and confirm each passes by observation (Article X) — **BLOCKED here: needs a live Postgres and real ANTHROPIC_API_KEY / ADZUNA credentials. Run `docker compose up` locally and walk the quickstart. All logic is covered by unit/integration tests in the meantime.**
+- [ ] T051a Verify the plan's performance targets by observation (**C2**): full search <~60s, single-document generation <~10s, HTMX partials <~300ms — **BLOCKED here: same live-infra requirement as T051; measure during the local quickstart run.**
 
 ---
 
