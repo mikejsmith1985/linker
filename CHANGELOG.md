@@ -101,6 +101,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     opt-in and `playwright install` step.
 
 ### Fixed
+- JSearch now calls the versioned `/search-v2` endpoint; the old `/search` path
+  returns 404 ("endpoint does not exist") and left the source non-functional.
+- Pass `RAPIDAPI_KEY` through `docker-compose.yml` to the app container so the
+  JSearch source activates under docker compose.
 - Pre-push hook (`.forge/hooks/pre-push` and `.forge/hooks/pre-push.ps1`) no
   longer false-fails on every push. The scaffold template hardcoded
   `go build ./cmd/forge/` (Forge Terminal's own entrypoint), which does not
