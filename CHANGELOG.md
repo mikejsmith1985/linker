@@ -30,6 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     and README for one-command local setup.
 
 ### Changed
+- Added a **geographic eligibility gate**: a new "location/region" preference
+  (default "United States") filters out remote roles the user isn't eligible for.
+  A posting restricted to e.g. Brazil, Germany, or Europe-only is gated below the
+  threshold, while "USA", "Americas", "North America", or "Worldwide" roles are
+  kept. Innocent-until-proven-guilty, so plain city names never over-gate
+  (`internal/scoring` location gate).
+- Tightened job discovery to a focused keyword set so results stay relevant
+  instead of returning a broad grab-bag.
 - Added **Remotive** as the default, key-free job source (remote roles) and made
   Adzuna optional — the app now discovers jobs out of the box with only an
   `ANTHROPIC_API_KEY` (`internal/jobsource` Remotive adapter).

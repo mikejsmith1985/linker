@@ -76,6 +76,50 @@ func TestTravelIsSoftNotAGate(t *testing.T) {
 	}
 }
 
+func TestLocationEligibilityForUSUser(t *testing.T) {
+	// Real required-location strings observed from Remotive.
+	cases := []struct {
+		jobLocation string
+		eligible    bool
+	}{
+		{"Americas, Europe, Israel", true},   // Americas includes US
+		{"USA, Canada, USA timezones", true}, // explicit USA
+		{"Worldwide", true},                  // open to anyone
+		{"Northern America, Europe, South America", true},
+		{"Brazil", false},                         // foreign-only
+		{"Germany", false},                        // foreign-only
+		{"LATAM, Europe, Central America", false}, // Latin/Central America ≠ US
+		{"Europe", false},                         // foreign-only
+		{"New York", true},                        // plain city, not a foreign restriction
+		{"", true},                                // unknown → not gated (caller guards empties)
+	}
+	for _, c := range cases {
+		if got := locationEligible("United States", c.jobLocation); got != c.eligible {
+			t.Errorf("locationEligible(US, %q) = %v, want %v", c.jobLocation, got, c.eligible)
+		}
+	}
+}
+
+func TestLocationGateFiresForForeignOnlyRole(t *testing.T) {
+	opening := store.JobOpening{WorkLocationType: store.WorkRemote, Location: "Brazil"}
+	prefs := store.Preferences{WorkLocationPref: store.WorkRemote, Location: "United States"}
+
+	got := ApplyGates(opening, prefs)
+	if got.Fired[GateLocation] != LocationGatePenalty {
+		t.Errorf("location gate = %d, want %d for a Brazil-only role", got.Fired[GateLocation], LocationGatePenalty)
+	}
+}
+
+func TestLocationGateDoesNotFireForUSInclusiveRole(t *testing.T) {
+	opening := store.JobOpening{WorkLocationType: store.WorkRemote, Location: "Americas, Europe, Israel"}
+	prefs := store.Preferences{WorkLocationPref: store.WorkRemote, Location: "United States"}
+
+	got := ApplyGates(opening, prefs)
+	if _, fired := got.Fired[GateLocation]; fired {
+		t.Error("location gate fired for a US-inclusive (Americas) role")
+	}
+}
+
 func TestStrongGatesPushBelowThreshold(t *testing.T) {
 	// A strong base fit gated on salary+work-location should end up below 70.
 	opening := store.JobOpening{SalaryMin: 50000, SalaryMax: 60000, WorkLocationType: store.WorkOnsite, Location: "NYC"}

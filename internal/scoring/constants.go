@@ -19,6 +19,7 @@ const (
 	// Strong gates: a mismatch normally drives the score below the threshold.
 	SalaryGatePenalty       = 45
 	WorkLocationGatePenalty = 40
+	LocationGatePenalty     = 40
 
 	// Soft factors: they nudge the score without acting as gates.
 	TravelSoftPenalty   = 8
@@ -29,6 +30,7 @@ const (
 const (
 	GateSalary       = "salary"
 	GateWorkLocation = "work_location"
+	GateLocation     = "location"
 	GateTravel       = "travel"
 	GateRelocate     = "relocate"
 )

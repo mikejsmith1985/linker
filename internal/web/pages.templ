@@ -50,6 +50,10 @@ templ Settings(prefs store.Preferences) {
 				<label>Required minimum salary (annual)
 					<input type="number" name="required_salary_min" value={ intAttr(prefs.RequiredSalaryMin) } min="0"/>
 				</label>
+				<label>Your location / region
+					<input type="text" name="location" value={ prefs.Location } placeholder="United States"/>
+				</label>
+				<p class="hint">Used to filter out remote roles you aren't eligible for — e.g. a "Brazil only" or "Europe only" posting is dropped, while "USA", "Americas", or "Worldwide" roles are kept.</p>
 				<label>Work location
 					<select name="work_location_pref">
 						@option("remote", "Remote", prefs.WorkLocationPref)

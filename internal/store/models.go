@@ -51,6 +51,7 @@ type Preferences struct {
 	RequiredSalaryMin    int // 0 = unset
 	SalaryCurrency       string
 	WorkLocationPref     WorkLocation
+	Location             string // the user's base location/region, e.g. "United States"
 	WillingToTravel      bool
 	WillingToRelocate    bool
 	BrowserAutomationAck bool

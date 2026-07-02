@@ -127,7 +127,7 @@ func TestGetPreferencesDefaultsWhenEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetPreferences: %v", err)
 	}
-	if p.WorkLocationPref != WorkRemote || p.SalaryCurrency != "USD" {
-		t.Errorf("defaults = %+v, want remote/USD", p)
+	if p.WorkLocationPref != WorkRemote || p.SalaryCurrency != "USD" || p.Location != "United States" {
+		t.Errorf("defaults = %+v, want remote/USD/United States", p)
 	}
 }
