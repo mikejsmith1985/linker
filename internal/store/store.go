@@ -128,11 +128,13 @@ func (s *PG) SavePreferences(ctx context.Context, p Preferences) (int64, error) 
 	err = s.db.QueryRow(ctx,
 		`INSERT INTO preferences
 		   (required_salary_min, salary_currency, work_location_pref, strict_work_location, location,
-		    willing_to_travel, willing_to_relocate, browser_automation_ack, enabled_sources, target_roles, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now()) RETURNING id`,
+		    willing_to_travel, willing_to_relocate, browser_automation_ack, enabled_sources, target_roles,
+		    new_roles_only, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now()) RETURNING id`,
 		p.RequiredSalaryMin, defaultString(p.SalaryCurrency, "USD"), string(defaultWorkLocation(p.WorkLocationPref)),
 		p.StrictWorkLocation, defaultString(p.Location, "United States"),
 		p.WillingToTravel, p.WillingToRelocate, p.BrowserAutomationAck, string(sources), string(roles),
+		p.NewRolesOnly,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("insert preferences: %w", err)
@@ -148,10 +150,11 @@ func (s *PG) GetPreferences(ctx context.Context) (Preferences, error) {
 	var sources, roles []byte
 	err := s.db.QueryRow(ctx,
 		`SELECT id, required_salary_min, salary_currency, work_location_pref, strict_work_location, location,
-		        willing_to_travel, willing_to_relocate, browser_automation_ack, enabled_sources, target_roles, updated_at
+		        willing_to_travel, willing_to_relocate, browser_automation_ack, enabled_sources, target_roles,
+		        new_roles_only, updated_at
 		   FROM preferences ORDER BY id DESC LIMIT 1`,
 	).Scan(&p.ID, &p.RequiredSalaryMin, &p.SalaryCurrency, &loc, &p.StrictWorkLocation, &p.Location, &p.WillingToTravel,
-		&p.WillingToRelocate, &p.BrowserAutomationAck, &sources, &roles, &p.UpdatedAt)
+		&p.WillingToRelocate, &p.BrowserAutomationAck, &sources, &roles, &p.NewRolesOnly, &p.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Preferences{SalaryCurrency: "USD", WorkLocationPref: WorkRemote, StrictWorkLocation: true, Location: "United States"}, nil
 	}

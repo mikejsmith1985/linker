@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **New roles only** preference: skip any posting already seen in a previous
+  search, so each search surfaces only roles you haven't encountered yet
+  (a "what's new since last time" mode). Relies on the persisted opening history.
 - **How to apply** guidance on each job: a "Find on the company's careers site"
   link (and a LinkedIn search) plus advice that aggregator "Quick Apply" is often
   filtered by ATS — apply on a direct employer's own careers page when possible.

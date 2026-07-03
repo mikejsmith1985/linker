@@ -63,7 +63,10 @@ type Preferences struct {
 	// TargetRoles are user-specified job titles to search for (e.g. aspirational
 	// AI-first roles), searched alongside the roles derived from the resume.
 	TargetRoles []string
-	UpdatedAt   time.Time
+	// NewRolesOnly excludes postings already seen in a previous search, so a
+	// search surfaces only roles the user hasn't encountered yet.
+	NewRolesOnly bool
+	UpdatedAt    time.Time
 }
 
 // Search is one on-demand discovery+scoring run.

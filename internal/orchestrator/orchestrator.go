@@ -151,6 +151,10 @@ func (o *Orchestrator) scoreAll(ctx context.Context, openings []store.JobOpening
 		if scoring.HardExcluded(opening, prefs) {
 			continue
 		}
+		// New-roles-only: skip any posting already seen in a previous search.
+		if prefs.NewRolesOnly && o.seenBefore(ctx, opening.CanonicalKey) {
+			continue
+		}
 		// A single bad opening (unpersistable data, a transient scoring error)
 		// must not abort the whole search — log it and move on.
 		openingID, err := o.store.UpsertOpening(ctx, opening)
@@ -170,6 +174,12 @@ func (o *Orchestrator) scoreAll(ctx context.Context, openings []store.JobOpening
 		out = append(out, scored{openingID: openingID, opening: opening, result: result})
 	}
 	return out, nil
+}
+
+// seenBefore reports whether an opening was already scored in a previous search.
+func (o *Orchestrator) seenBefore(ctx context.Context, canonicalKey string) bool {
+	_, err := o.store.FindScoredOpening(ctx, canonicalKey)
+	return err == nil
 }
 
 // reusePriorScore returns a previously computed score for the same posting, if

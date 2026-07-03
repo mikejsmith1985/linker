@@ -155,6 +155,7 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		WorkLocationPref:     parseWorkLocation(r.FormValue("work_location_pref")),
 		StrictWorkLocation:   r.FormValue("strict_work_location") != "",
 		TargetRoles:          splitLines(r.FormValue("target_roles")),
+		NewRolesOnly:         r.FormValue("new_roles_only") != "",
 		Location:             defaultLocation(r.FormValue("location")),
 		WillingToTravel:      r.FormValue("willing_to_travel") != "",
 		WillingToRelocate:    r.FormValue("willing_to_relocate") != "",
