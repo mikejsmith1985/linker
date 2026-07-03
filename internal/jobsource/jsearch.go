@@ -117,13 +117,16 @@ func (j *JSearch) searchOne(ctx context.Context, term string) ([]RawOpening, err
 
 	openings := make([]RawOpening, 0, len(parsed.Data.Jobs))
 	for _, job := range parsed.Data.Jobs {
-		workLocation := "unknown"
-		if job.JobIsRemote {
-			workLocation = "remote"
-		}
 		location := joinLocation(job.JobCity, job.JobState, job.JobCountry)
 		if location == "" {
 			location = job.JobLocation // e.g. "Anywhere" for remote roles
+		}
+		// Prefer the text ("Hybrid 3 days on site") over JSearch's job_is_remote
+		// flag, which marks a role remote if it has any remote days; fall back to
+		// the flag only when the text gives no signal.
+		workLocation := inferWorkLocation(job.JobTitle, job.JobDescription, location)
+		if workLocation == "unknown" && job.JobIsRemote {
+			workLocation = "remote"
 		}
 		salaryMin, salaryMax := annualSalary(job.JobMinSalary, job.JobMaxSalary, job.JobSalaryPeriod)
 		openings = append(openings, RawOpening{

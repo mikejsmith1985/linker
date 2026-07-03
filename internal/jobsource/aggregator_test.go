@@ -85,3 +85,19 @@ func TestAdzunaNonOKStatusIsError(t *testing.T) {
 		t.Error("expected error on non-200 status")
 	}
 }
+
+func TestInferWorkLocationFromText(t *testing.T) {
+	cases := map[string]string{
+		"Senior Scrum Master — McLean, VA (Hybrid 3 days on site 2 days remote)": "hybrid",
+		"This is a 100% remote position, work from anywhere":                     "remote",
+		"Fully remote role, no on-site presence required":                        "remote",
+		"Must work 5 days on site in our DC office":                              "onsite",
+		"Remote-first company culture":                                           "remote",
+		"Competitive salary and great benefits":                                  "unknown",
+	}
+	for text, want := range cases {
+		if got := inferWorkLocation(text); got != want {
+			t.Errorf("inferWorkLocation(%q) = %q, want %q", text, got, want)
+		}
+	}
+}

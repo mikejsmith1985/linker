@@ -82,6 +82,16 @@ const (
 // a single search does not fan out into hundreds of expensive scoring calls.
 const defaultSourceCap = 15
 
+// anyContains reports whether the blob contains any of the substrings.
+func anyContains(blob string, subs ...string) bool {
+	for _, sub := range subs {
+		if strings.Contains(blob, sub) {
+			return true
+		}
+	}
+	return false
+}
+
 // matchesAnyKeyword reports whether any keyword appears in the text
 // (case-insensitive). With no keywords it matches everything.
 func matchesAnyKeyword(text string, keywords []string) bool {
