@@ -60,7 +60,10 @@ type Preferences struct {
 	WillingToRelocate    bool
 	BrowserAutomationAck bool
 	EnabledSources       []string
-	UpdatedAt            time.Time
+	// TargetRoles are user-specified job titles to search for (e.g. aspirational
+	// AI-first roles), searched alongside the roles derived from the resume.
+	TargetRoles []string
+	UpdatedAt   time.Time
 }
 
 // Search is one on-demand discovery+scoring run.

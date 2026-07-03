@@ -14,7 +14,7 @@ Produce plain text with these sections:
 - Skills: comma-separated technical and professional skills actually mentioned.
 - Experience: bullet lines of role @ employer (dates) — one per position found.
 - Credentials: degrees/certifications mentioned, or "none stated".
-- Target roles: comma-separated list of 3 to 6 specific job titles this candidate is well qualified for based on their experience (e.g. "Scrum Master, Release Train Engineer, Agile Coach"). Use standard industry titles a job board would list.`
+- Target roles: comma-separated list of 4 to 8 specific job titles a job board would list. Include both roles the candidate is well qualified for today AND 1-3 adjacent roles they could realistically grow into. When the resume shows any AI, automation, or agentic-tooling experience, include emerging AI-first titles (e.g. "AI Delivery Lead", "AI Program Manager", "Agentic AI Engineer", "AI Transformation Lead", "AI Workflow Engineer"). Use standard, searchable industry titles.`
 
 // ExtractProfile asks the LLM to organize raw resume text into a structured
 // profile. The profile is derived solely from the supplied text (no fabrication).

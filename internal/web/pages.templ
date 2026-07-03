@@ -60,6 +60,10 @@ templ Settings(prefs store.Preferences) {
 				<label>Required minimum salary (annual)
 					<input type="number" name="required_salary_min" value={ intAttr(prefs.RequiredSalaryMin) } min="0"/>
 				</label>
+				<label>Roles to search for (optional, one per line)
+					<textarea name="target_roles" rows="4" placeholder="AI Delivery Lead&#10;Agentic AI Engineer&#10;AI Transformation Lead&#10;AI Program Manager">{ joinLines(prefs.TargetRoles) }</textarea>
+				</label>
+				<p class="hint">Steer the search toward roles you want — these are searched first, alongside the roles inferred from your resume. Great for pivoting (e.g. into AI-first / agentic roles).</p>
 				<label>Your location / region
 					<input type="text" name="location" value={ prefs.Location } placeholder="United States"/>
 				</label>

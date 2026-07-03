@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Target roles** preference: type job titles to search for (one per line) —
+  they're searched first, alongside the roles inferred from your resume. Ideal for
+  pivoting toward roles you want (e.g. AI-first / agentic titles). JSearch now
+  fetches 5 pages per query and up to 5 role-title queries run per search, and the
+  resume parser suggests adjacent AI-first roles when the resume shows AI /
+  automation experience.
 - **Strict work-location** preference (default on): when set, roles that conflict
   with your work-location choice are **excluded outright** — a remote-only search
   now hides every hybrid/onsite role instead of merely ranking it low. Toggle in
