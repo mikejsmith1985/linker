@@ -72,7 +72,9 @@ func (s *Server) Routes() http.Handler {
 	r.Post("/search/urls", s.handleSearchURLs)
 	r.Post("/search/companies", s.handleSearchCompanies)
 	r.Get("/search/{id}", s.handleSearchResults)
+	r.Get("/matches", s.handleMatches)
 	r.Get("/job/{id}", s.handleJob)
+	r.Post("/job/{id}/review", s.handleReview)
 	r.Post("/job/{id}/documents/{docType}", s.handleSaveDocument)
 	r.Get("/job/{id}/documents/{docType}/download", s.handleDownloadDocument)
 	r.Post("/job/{id}/select", s.handleSelect)
@@ -229,6 +231,11 @@ func (s *Server) handleSearchResults(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	s.renderSearch(w, r, id)
+}
+
+// renderSearch loads a search and its qualifying matches and renders the results.
+func (s *Server) renderSearch(w http.ResponseWriter, r *http.Request, id int64) {
 	search, err := s.store.GetSearch(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "search not found", http.StatusNotFound)
@@ -244,6 +251,59 @@ func (s *Server) handleSearchResults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, r, Results(search, matches))
+}
+
+// handleMatches renders the latest completed search's results, so the user can
+// always get back to their list without a saved URL.
+func (s *Server) handleMatches(w http.ResponseWriter, r *http.Request) {
+	id, err := s.store.LatestCompletedSearchID(r.Context())
+	if errors.Is(err, store.ErrNotFound) {
+		s.render(w, r, NoMatches())
+		return
+	}
+	if err != nil {
+		s.fail(w, "load latest search", err)
+		return
+	}
+	s.renderSearch(w, r, id)
+}
+
+// handleReview persists a Pass/Interested/new mark on the opening and returns the
+// updated card for an in-place swap.
+func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.idParam(w, r)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "could not read form", http.StatusBadRequest)
+		return
+	}
+	status, ok := parseReviewStatus(r.FormValue("status"))
+	if !ok {
+		http.Error(w, "invalid review status", http.StatusBadRequest)
+		return
+	}
+	match, err := s.store.GetMatchWithOpening(r.Context(), id)
+	if err != nil {
+		s.fail(w, "load match", err)
+		return
+	}
+	if err := s.store.SetOpeningReviewStatus(r.Context(), match.JobOpeningID, status); err != nil {
+		s.fail(w, "save review", err)
+		return
+	}
+	match.Opening.ReviewStatus = status
+	s.render(w, r, matchCard(match))
+}
+
+func parseReviewStatus(s string) (string, bool) {
+	switch s {
+	case store.ReviewInterested, store.ReviewPassed, store.ReviewNew:
+		return s, true
+	default:
+		return "", false
+	}
 }
 
 // handleJob renders one opening: score, explanation, and both tailored
@@ -526,6 +586,18 @@ func docTypeLabel(docType store.DocType) string {
 
 func joinFlags(flags []string) string { return strings.Join(flags, ", ") }
 
+// reviewClass maps a review status to a CSS class for styling the card.
+func reviewClass(status string) string {
+	switch status {
+	case store.ReviewPassed:
+		return "reviewed-passed"
+	case store.ReviewInterested:
+		return "reviewed-interested"
+	default:
+		return ""
+	}
+}
+
 // browserEnabled reports whether the browser source is in the enabled set.
 func browserEnabled(prefs store.Preferences) bool {
 	for _, name := range prefs.EnabledSources {
@@ -564,38 +636,48 @@ func splitOn(raw string, isSep func(rune) bool) []string {
 }
 
 const styleCSS = `
-:root { --bg:#0f1115; --card:#1a1d24; --ink:#e7e9ee; --muted:#9aa3b2; --accent:#3b82f6; --ok:#16a34a; --danger:#ef4444; }
+:root { --bg:#0f1115; --card:#1a1d24; --ink:#e7e9ee; --muted:#9aa3b2; --accent:#3b82f6; --ok:#16a34a; --danger:#ef4444; --star:#f59e0b; }
 * { box-sizing: border-box; }
-body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--ink); }
-.topbar { display:flex; align-items:center; gap:1.5rem; padding:1rem 1.5rem; border-bottom:1px solid #2a2e38; }
-.brand { font-weight:700; letter-spacing:.02em; }
-nav a { color:var(--muted); text-decoration:none; margin-right:1rem; }
+html { font-size: 18px; }
+body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--ink); line-height:1.5; }
+.topbar { display:flex; align-items:center; gap:2rem; padding:1rem 2rem; border-bottom:1px solid #2a2e38; }
+.brand { font-weight:700; letter-spacing:.02em; font-size:1.25rem; }
+nav a { color:var(--muted); text-decoration:none; margin-right:1.25rem; font-size:1.05rem; }
 nav a:hover { color:var(--ink); }
-main { max-width:820px; margin:0 auto; padding:1.5rem; }
-h2 { margin:0 0 .6rem; font-size:1.05rem; }
-.card { background:var(--card); border:1px solid #2a2e38; border-radius:12px; padding:1rem 1.1rem; margin-bottom:1rem; }
+main { max-width:1200px; margin:0 auto; padding:2rem 2.5rem; }
+h2 { margin:0 0 .8rem; font-size:1.35rem; }
+.card { background:var(--card); border:1px solid #2a2e38; border-radius:14px; padding:1.4rem 1.6rem; margin-bottom:1.25rem; }
 .card.empty { text-align:center; }
-.meta { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; margin-bottom:.4rem; }
-.score { background:var(--accent); color:#fff; font-weight:700; border-radius:8px; padding:.15rem .55rem; }
-.badge { background:#272b35; padding:.1rem .5rem; border-radius:999px; font-size:.75rem; color:var(--muted); }
+.match { transition: opacity .2s, border-color .2s; }
+.reviewed-interested { border-color: var(--star); box-shadow: 0 0 0 1px rgba(245,158,11,.25); }
+.reviewed-passed { opacity:.5; }
+.meta { display:flex; align-items:center; gap:.7rem; flex-wrap:wrap; margin-bottom:.5rem; }
+.job-title { font-size:1.3rem; }
+.employer { font-size:1.1rem; color:var(--muted); }
+.score { background:var(--accent); color:#fff; font-weight:700; border-radius:10px; padding:.25rem .7rem; font-size:1.15rem; }
+.badge { background:#272b35; padding:.2rem .65rem; border-radius:999px; font-size:.8rem; color:var(--muted); }
+.badge.star { background:rgba(245,158,11,.18); color:var(--star); }
+.badge.passed-tag { background:#2a2e38; color:var(--muted); }
 .src { color:var(--accent); text-decoration:none; }
-.explain { margin:.3rem 0 0; }
+.explain { margin:.5rem 0 0; font-size:1.02rem; }
 .hint, .empty, .health li { color:var(--muted); }
 .ok { color:#4ade80; }
-.health { list-style:none; padding:0; display:flex; gap:.8rem; flex-wrap:wrap; margin:0; }
-label { display:block; margin:.6rem 0; }
+.health { list-style:none; padding:0; display:flex; gap:1rem; flex-wrap:wrap; margin:0; font-size:1rem; }
+label { display:block; margin:.8rem 0; font-size:1.05rem; }
 label.check { display:flex; align-items:center; gap:.5rem; }
-input[type=number], select { background:#0d0f14; color:var(--ink); border:1px solid #2a2e38; border-radius:8px; padding:.5rem; font:inherit; margin-left:.5rem; }
-.actions { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin-top:.7rem; }
-button { cursor:pointer; border:none; border-radius:8px; padding:.5rem .8rem; font:inherit; }
+input[type=number], input[type=text], select { background:#0d0f14; color:var(--ink); border:1px solid #2a2e38; border-radius:8px; padding:.6rem; font:inherit; margin-left:.5rem; }
+.actions { display:flex; gap:.6rem; flex-wrap:wrap; align-items:center; margin-top:1rem; }
+button { cursor:pointer; border:none; border-radius:9px; padding:.6rem 1rem; font:inherit; font-size:1rem; }
 button:disabled { opacity:.5; cursor:not-allowed; }
 .primary { background:var(--accent); color:#fff; }
 .secondary { background:#272b35; color:var(--ink); }
-.btn { display:inline-block; text-decoration:none; border-radius:8px; padding:.5rem .8rem; }
+.ghost { background:transparent; color:var(--muted); border:1px solid #2a2e38; }
+.ghost:hover { color:var(--ink); }
+.btn { display:inline-block; text-decoration:none; border-radius:9px; padding:.6rem 1rem; font-size:1rem; }
 a.primary.btn { color:#fff; }
 a.secondary.btn { color:var(--ink); }
-textarea { width:100%; background:#0d0f14; color:var(--ink); border:1px solid #2a2e38; border-radius:8px; padding:.7rem; font:ui-monospace,monospace; font-size:.85rem; resize:vertical; }
-.warn { background:rgba(239,68,68,.12); border:1px solid var(--danger); color:#fca5a5; padding:.6rem .8rem; border-radius:8px; }
-.danger-zone { border:1px solid var(--danger); border-radius:8px; padding:.5rem .8rem; margin:1rem 0; }
+textarea { width:100%; background:#0d0f14; color:var(--ink); border:1px solid #2a2e38; border-radius:8px; padding:.8rem; font:ui-monospace,monospace; font-size:.95rem; resize:vertical; }
+.warn { background:rgba(239,68,68,.12); border:1px solid var(--danger); color:#fca5a5; padding:.8rem 1rem; border-radius:8px; }
+.danger-zone { border:1px solid var(--danger); border-radius:8px; padding:.7rem 1rem; margin:1.2rem 0; }
 .danger-zone legend { color:var(--danger); padding:0 .4rem; }
 `

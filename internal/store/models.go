@@ -83,8 +83,16 @@ type JobOpening struct {
 	Description      string
 	SourceNames      []string
 	OriginalURL      string
+	ReviewStatus     string // new | interested | passed
 	DiscoveredAt     time.Time
 }
+
+// Review states for a job opening, persisted so a mark survives re-runs.
+const (
+	ReviewNew        = "new"
+	ReviewInterested = "interested"
+	ReviewPassed     = "passed"
+)
 
 // MatchResult pairs one opening with a search's resume+preferences: the score
 // and its explanation. Results below the threshold are stored but never shown.

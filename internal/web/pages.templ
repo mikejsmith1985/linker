@@ -135,20 +135,57 @@ templ Results(search store.Search, matches []store.MatchWithOpening) {
 }
 
 templ matchCard(m store.MatchWithOpening) {
-	<section class="card">
+	<section class={ "card", "match", reviewClass(m.Opening.ReviewStatus) }>
 		<div class="meta">
 			<span class="score">{ scoreText(m.Score) }</span>
-			<strong>{ m.Opening.Title }</strong>
-			<span>· { m.Opening.Employer }</span>
+			<strong class="job-title">{ m.Opening.Title }</strong>
+			<span class="employer">· { m.Opening.Employer }</span>
 			<span class="badge">{ string(m.Opening.WorkLocationType) }</span>
+			if m.Opening.ReviewStatus == "interested" {
+				<span class="badge star">★ Interested</span>
+			}
+			if m.Opening.ReviewStatus == "passed" {
+				<span class="badge passed-tag">Passed</span>
+			}
 		</div>
 		<p class="hint">{ m.Opening.Location } · { salaryText(m.Opening) } · via { sourcesText(m.Opening) }</p>
 		<p class="explain">{ m.ScoreExplanation }</p>
 		<div class="actions">
 			<a class="primary btn" href={ templ.SafeURL(jobPath(m.ID)) }>View &amp; tailor</a>
-			<form method="post" action={ templ.SafeURL(jobPath(m.ID) + "/open") }>
-				<button type="submit" class="secondary">Open posting</button>
-			</form>
+			<a class="secondary btn" href={ templ.SafeURL(m.Opening.OriginalURL) } target="_blank" rel="noopener">Open listing ↗</a>
+			<button
+				class="secondary"
+				hx-post={ jobPath(m.ID) + "/review" }
+				hx-vals={ `{"status":"interested"}` }
+				hx-target="closest .match"
+				hx-swap="outerHTML"
+			>★ Interested</button>
+			<button
+				class="ghost"
+				hx-post={ jobPath(m.ID) + "/review" }
+				hx-vals={ `{"status":"passed"}` }
+				hx-target="closest .match"
+				hx-swap="outerHTML"
+			>Pass</button>
+			if m.Opening.ReviewStatus != "new" {
+				<button
+					class="ghost"
+					hx-post={ jobPath(m.ID) + "/review" }
+					hx-vals={ `{"status":"new"}` }
+					hx-target="closest .match"
+					hx-swap="outerHTML"
+				>Undo</button>
+			}
 		</div>
 	</section>
+}
+
+// NoMatches is the empty state for the Matches page before any search has run.
+templ NoMatches() {
+	@Layout("linker — matches") {
+		<section class="card empty">
+			<h2>No searches yet</h2>
+			<p class="hint">Run a search from the <a href="/">home page</a> and your matches will appear here — this page always shows your latest results, so you won't lose them.</p>
+		</section>
+	}
 }

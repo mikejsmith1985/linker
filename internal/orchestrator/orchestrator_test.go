@@ -58,6 +58,10 @@ func (e errorString) Error() string { return string(e) }
 func (f *fakeStore) FindScoredOpening(context.Context, string) (store.MatchResult, error) {
 	return store.MatchResult{}, store.ErrNotFound
 }
+func (f *fakeStore) SetOpeningReviewStatus(context.Context, int64, string) error { return nil }
+func (f *fakeStore) LatestCompletedSearchID(context.Context) (int64, error) {
+	return 0, store.ErrNotFound
+}
 func (f *fakeStore) CreateMatchResult(_ context.Context, m store.MatchResult) (int64, error) {
 	f.created = append(f.created, m)
 	return int64(len(f.created)), nil

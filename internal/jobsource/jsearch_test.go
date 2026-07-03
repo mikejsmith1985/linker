@@ -118,3 +118,22 @@ func TestJSearchDetectsHybridFromTextOverRemoteFlag(t *testing.T) {
 		t.Errorf("WorkLocationType = %q, want hybrid (text over job_is_remote flag)", out[0].WorkLocationType)
 	}
 }
+
+func TestJSearchPrefersDirectApplyLink(t *testing.T) {
+	body := `{"data":{"jobs":[
+	  {"job_title":"Scrum Master","employer_name":"Acme","job_apply_link":"https://monster.com/redirect",
+	   "job_apply_is_direct":false,
+	   "apply_options":[{"publisher":"Monster","apply_link":"https://monster.com/redirect","is_direct":false},
+	                    {"publisher":"Acme Careers","apply_link":"https://acme.com/careers/1","is_direct":true}],
+	   "job_is_remote":true}
+	]}}`
+	j := NewJSearch("k")
+	j.http = &fakeRoundTripper{body: body}
+	out, err := j.Discover(context.Background(), Query{Keywords: []string{"scrum"}})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if out[0].OriginalURL != "https://acme.com/careers/1" {
+		t.Errorf("OriginalURL = %q, want the direct company link", out[0].OriginalURL)
+	}
+}

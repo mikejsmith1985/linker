@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Matches page** (`/matches`): always shows your latest completed search's
+  results, so closing the tab never loses your list — no saved URL needed.
+- **Review workflow**: each match has **Interested** / **Pass** / **Undo** buttons.
+  The mark is stored on the job itself (not the per-search row), so it persists
+  across re-runs; passed roles are dimmed and interested roles highlighted. This
+  is the feedback signal for improving matching over time.
+- **Direct apply links**: JSearch now prefers a direct-to-employer application
+  link over an aggregator redirect (Monster/LinkedIn) when one is available.
+- Larger, wider dashboard UI (bigger fonts, full-width layout) to use screen space.
+
 - Forge Workflow initialized with Forge Terminal Workflow Architect
 - Standalone `linker` service that drafts LinkedIn posts from GitHub activity:
   - Environment-only configuration (`internal/config`), no hardcoded credentials.

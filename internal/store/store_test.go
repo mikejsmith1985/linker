@@ -86,7 +86,7 @@ func TestListQualifyingScansJoin(t *testing.T) {
 		"id", "search_id", "job_opening_id", "score", "score_explanation",
 		"gate_penalties", "is_qualifying", "rank",
 		"o_id", "canonical_key", "title", "employer", "location", "work_location_type",
-		"salary_min", "salary_max", "description", "source_names", "original_url", "discovered_at",
+		"salary_min", "salary_max", "description", "source_names", "original_url", "review_status", "discovered_at",
 	}
 	now := time.Now()
 	mock.ExpectQuery("FROM match_results m JOIN job_openings o").
@@ -95,7 +95,7 @@ func TestListQualifyingScansJoin(t *testing.T) {
 			int64(11), int64(5), int64(9), 82, "great fit",
 			[]byte(`{"salary":0}`), true, 1,
 			int64(9), "acme|engineer|remote", "Engineer", "Acme", "Remote", "remote",
-			0, 0, "desc", []byte(`["adzuna"]`), "https://x", now,
+			0, 0, "desc", []byte(`["adzuna"]`), "https://x", "new", now,
 		))
 
 	out, err := s.ListQualifying(context.Background(), 5)
