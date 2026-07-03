@@ -44,9 +44,15 @@ func (j *JSearch) Name() string { return "jsearch" }
 
 // jsearchJob is one posting in the JSearch response.
 type jsearchJob struct {
-	JobTitle        string  `json:"job_title"`
-	EmployerName    string  `json:"employer_name"`
-	JobApplyLink    string  `json:"job_apply_link"`
+	JobTitle         string `json:"job_title"`
+	EmployerName     string `json:"employer_name"`
+	JobApplyLink     string `json:"job_apply_link"`
+	JobApplyIsDirect bool   `json:"job_apply_is_direct"`
+	ApplyOptions     []struct {
+		Publisher string `json:"publisher"`
+		ApplyLink string `json:"apply_link"`
+		IsDirect  bool   `json:"is_direct"`
+	} `json:"apply_options"`
 	JobDescription  string  `json:"job_description"`
 	JobIsRemote     bool    `json:"job_is_remote"`
 	JobLocation     string  `json:"job_location"`
@@ -134,7 +140,7 @@ func (j *JSearch) searchOne(ctx context.Context, term string) ([]RawOpening, err
 			Employer:         job.EmployerName,
 			Location:         location,
 			Description:      truncate(job.JobDescription, 4000),
-			OriginalURL:      job.JobApplyLink,
+			OriginalURL:      job.bestApplyLink(),
 			WorkLocationType: workLocation,
 			SalaryMin:        salaryMin,
 			SalaryMax:        salaryMax,
@@ -142,6 +148,20 @@ func (j *JSearch) searchOne(ctx context.Context, term string) ([]RawOpening, err
 		})
 	}
 	return openings, nil
+}
+
+// bestApplyLink prefers a direct-to-employer application link over an aggregator
+// redirect (Monster, LinkedIn, etc.).
+func (j jsearchJob) bestApplyLink() string {
+	if j.JobApplyIsDirect && j.JobApplyLink != "" {
+		return j.JobApplyLink
+	}
+	for _, opt := range j.ApplyOptions {
+		if opt.IsDirect && opt.ApplyLink != "" {
+			return opt.ApplyLink
+		}
+	}
+	return j.JobApplyLink
 }
 
 // annualSalary returns min/max only when the figures are annual, so hourly or

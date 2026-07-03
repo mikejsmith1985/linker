@@ -49,8 +49,12 @@ CREATE TABLE IF NOT EXISTS job_openings (
     description        TEXT        NOT NULL DEFAULT '',
     source_names       JSONB       NOT NULL DEFAULT '[]',
     original_url       TEXT        NOT NULL DEFAULT '',
+    review_status      TEXT        NOT NULL DEFAULT 'new',
     discovered_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Persist review state on the opening (not the per-search row) so a Pass/Interested
+-- mark survives re-runs. Add the column to tables created before it existed.
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'new';
 
 CREATE TABLE IF NOT EXISTS match_results (
     id                BIGSERIAL PRIMARY KEY,

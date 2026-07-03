@@ -40,9 +40,11 @@ type Store interface {
 	CreateSearch(ctx context.Context, resumeID int64, snapshot Preferences) (int64, error)
 	FinishSearch(ctx context.Context, id int64, status SearchStatus, health map[string]string) error
 	GetSearch(ctx context.Context, id int64) (Search, error)
+	LatestCompletedSearchID(ctx context.Context) (int64, error)
 
 	UpsertOpening(ctx context.Context, o JobOpening) (int64, error)
 	FindScoredOpening(ctx context.Context, canonicalKey string) (MatchResult, error)
+	SetOpeningReviewStatus(ctx context.Context, openingID int64, status string) error
 
 	CreateMatchResult(ctx context.Context, m MatchResult) (int64, error)
 	ListQualifying(ctx context.Context, searchID int64) ([]MatchWithOpening, error)
@@ -194,6 +196,22 @@ func (s *PG) FinishSearch(ctx context.Context, id int64, status SearchStatus, he
 	return nil
 }
 
+// LatestCompletedSearchID returns the id of the most recent completed search, or
+// ErrNotFound when none exists yet.
+func (s *PG) LatestCompletedSearchID(ctx context.Context) (int64, error) {
+	var id int64
+	err := s.db.QueryRow(ctx,
+		`SELECT id FROM searches WHERE status = 'completed' ORDER BY id DESC LIMIT 1`,
+	).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("latest search: %w", err)
+	}
+	return id, nil
+}
+
 // GetSearch loads a search by id.
 func (s *PG) GetSearch(ctx context.Context, id int64) (Search, error) {
 	var sr Search
@@ -242,6 +260,17 @@ func (s *PG) UpsertOpening(ctx context.Context, o JobOpening) (int64, error) {
 		return 0, fmt.Errorf("upsert opening: %w", err)
 	}
 	return id, nil
+}
+
+// SetOpeningReviewStatus persists a Pass/Interested/new mark on the opening, so
+// it survives future searches (the opening row is reused across searches).
+func (s *PG) SetOpeningReviewStatus(ctx context.Context, openingID int64, status string) error {
+	_, err := s.db.Exec(ctx,
+		`UPDATE job_openings SET review_status = $2 WHERE id = $1`, openingID, status)
+	if err != nil {
+		return fmt.Errorf("set review status: %w", err)
+	}
+	return nil
 }
 
 // FindScoredOpening returns the most recent match result for the opening with
@@ -294,7 +323,7 @@ func (s *PG) ListQualifying(ctx context.Context, searchID int64) ([]MatchWithOpe
 		`SELECT m.id, m.search_id, m.job_opening_id, m.score, m.score_explanation,
 		        m.gate_penalties, m.is_qualifying, m.rank,
 		        o.id, o.canonical_key, o.title, o.employer, o.location, o.work_location_type,
-		        o.salary_min, o.salary_max, o.description, o.source_names, o.original_url, o.discovered_at
+		        o.salary_min, o.salary_max, o.description, o.source_names, o.original_url, o.review_status, o.discovered_at
 		   FROM match_results m JOIN job_openings o ON o.id = m.job_opening_id
 		  WHERE m.search_id = $1 AND m.is_qualifying = TRUE
 		  ORDER BY m.rank ASC`, searchID)
@@ -323,7 +352,7 @@ func (s *PG) GetMatchWithOpening(ctx context.Context, matchID int64) (MatchWithO
 		`SELECT m.id, m.search_id, m.job_opening_id, m.score, m.score_explanation,
 		        m.gate_penalties, m.is_qualifying, m.rank,
 		        o.id, o.canonical_key, o.title, o.employer, o.location, o.work_location_type,
-		        o.salary_min, o.salary_max, o.description, o.source_names, o.original_url, o.discovered_at
+		        o.salary_min, o.salary_max, o.description, o.source_names, o.original_url, o.review_status, o.discovered_at
 		   FROM match_results m JOIN job_openings o ON o.id = m.job_opening_id
 		  WHERE m.id = $1`, matchID)
 	mw, err := scanMatchWithOpening(row)
@@ -350,7 +379,7 @@ func scanMatchWithOpening(row scanDest) (MatchWithOpening, error) {
 		&penalties, &mw.IsQualifying, &mw.Rank,
 		&mw.Opening.ID, &mw.Opening.CanonicalKey, &mw.Opening.Title, &mw.Opening.Employer,
 		&mw.Opening.Location, &loc, &mw.Opening.SalaryMin, &mw.Opening.SalaryMax,
-		&mw.Opening.Description, &names, &mw.Opening.OriginalURL, &mw.Opening.DiscoveredAt,
+		&mw.Opening.Description, &names, &mw.Opening.OriginalURL, &mw.Opening.ReviewStatus, &mw.Opening.DiscoveredAt,
 	)
 	if err != nil {
 		return MatchWithOpening{}, err

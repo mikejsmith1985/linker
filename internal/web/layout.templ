@@ -11,12 +11,14 @@ templ Layout(title string) {
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
 			<title>{ title }</title>
 			<link rel="stylesheet" href="/static/styles.css"/>
+			<script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
 		</head>
 		<body>
 			<header class="topbar">
 				<span class="brand">linker</span>
 				<nav>
-					<a href="/">Matches</a>
+					<a href="/">Home</a>
+					<a href="/matches">Matches</a>
 					<a href="/settings">Preferences</a>
 				</nav>
 			</header>

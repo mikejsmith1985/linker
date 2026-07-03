@@ -27,6 +27,8 @@ type webFakeStore struct {
 	selectRecorded bool
 	openedRecorded bool
 	openedFlag     bool
+	reviewStatus   string
+	latestSearchID int64
 }
 
 func (f *webFakeStore) RunMigrations(context.Context) error                     { return nil }
@@ -56,6 +58,16 @@ func (f *webFakeStore) UpsertOpening(context.Context, store.JobOpening) (int64, 
 }
 func (f *webFakeStore) FindScoredOpening(context.Context, string) (store.MatchResult, error) {
 	return store.MatchResult{}, store.ErrNotFound
+}
+func (f *webFakeStore) SetOpeningReviewStatus(_ context.Context, _ int64, status string) error {
+	f.reviewStatus = status
+	return nil
+}
+func (f *webFakeStore) LatestCompletedSearchID(context.Context) (int64, error) {
+	if f.latestSearchID == 0 {
+		return 0, store.ErrNotFound
+	}
+	return f.latestSearchID, nil
 }
 func (f *webFakeStore) CreateMatchResult(context.Context, store.MatchResult) (int64, error) {
 	return 1, nil
@@ -459,6 +471,65 @@ func TestOpenPostingWithDeadURLReturnsGone(t *testing.T) {
 	newTestServer(st).ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/job/5/open", nil))
 	if rr.Code != http.StatusGone {
 		t.Errorf("status = %d, want 410 for an unreachable posting", rr.Code)
+	}
+}
+
+func TestReviewPersistsStatusAndReturnsCard(t *testing.T) {
+	st := &webFakeStore{
+		match: store.MatchWithOpening{
+			MatchResult: store.MatchResult{ID: 5, Score: 88, IsQualifying: true, JobOpeningID: 9},
+			Opening:     store.JobOpening{Title: "Senior Scrum Master", Employer: "Acme"},
+		},
+	}
+	form := "status=passed"
+	req := httptest.NewRequest(http.MethodPost, "/job/5/review", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (card fragment)", rr.Code)
+	}
+	if st.reviewStatus != store.ReviewPassed {
+		t.Errorf("saved status = %q, want passed", st.reviewStatus)
+	}
+	if !strings.Contains(rr.Body.String(), "Passed") {
+		t.Error("returned card should reflect the passed state")
+	}
+}
+
+func TestReviewRejectsInvalidStatus(t *testing.T) {
+	st := &webFakeStore{}
+	req := httptest.NewRequest(http.MethodPost, "/job/5/review", strings.NewReader("status=bogus"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for invalid review status", rr.Code)
+	}
+}
+
+func TestMatchesEmptyStateWhenNoSearch(t *testing.T) {
+	st := &webFakeStore{} // latestSearchID 0 → ErrNotFound
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/matches", nil))
+	if !strings.Contains(rr.Body.String(), "No searches yet") {
+		t.Error("expected empty state on /matches with no searches")
+	}
+}
+
+func TestMatchesShowsLatestSearch(t *testing.T) {
+	st := &webFakeStore{
+		latestSearchID: 3,
+		search:         store.Search{ID: 3, SourceHealth: map[string]string{"jsearch": "succeeded"}},
+		qualifying: []store.MatchWithOpening{
+			{MatchResult: store.MatchResult{Score: 90, IsQualifying: true}, Opening: store.JobOpening{Title: "RTE Role"}},
+		},
+	}
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/matches", nil))
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "RTE Role") {
+		t.Errorf("matches page did not render the latest results (code %d)", rr.Code)
 	}
 }
 
