@@ -137,3 +137,23 @@ func TestJSearchPrefersDirectApplyLink(t *testing.T) {
 		t.Errorf("OriginalURL = %q, want the direct company link", out[0].OriginalURL)
 	}
 }
+
+func TestJSearchNotRemoteDefaultsToOnsite(t *testing.T) {
+	// job_is_remote=false and the description has no remote/onsite keyword the
+	// detector recognizes ("work in our Winchester, VA office") — must NOT be
+	// left "unknown" (which a remote-only filter would let through).
+	body := `{"data":{"jobs":[
+	  {"job_title":"Release Train Engineer Senior","employer_name":"ECS","job_apply_link":"https://x",
+	   "job_description":"ECS is seeking a Release Train Engineer Senior to work in our Winchester, VA office. Manages the flow of value through the ART.",
+	   "job_is_remote":false,"job_city":"Winchester","job_state":"VA","job_country":"US"}
+	]}}`
+	j := NewJSearch("k")
+	j.http = &fakeRoundTripper{body: body}
+	out, err := j.Discover(context.Background(), Query{Keywords: []string{"engineer"}})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if out[0].WorkLocationType != "onsite" {
+		t.Errorf("WorkLocationType = %q, want onsite (not-remote must not stay unknown)", out[0].WorkLocationType)
+	}
+}

@@ -142,7 +142,8 @@ func inferWorkLocation(parts ...string) string {
 		"remote position", "remote role", "work from home", "work from anywhere"):
 		return "remote"
 	case anyContains(blob, "on-site", "onsite", "on site", "in office", "in-office",
-		"days on site", "days in the office", "days per week in", "on premise", "on-premise"):
+		"days on site", "days in the office", "days per week in", "on premise", "on-premise",
+		"in person", "in-person", "must be located", "must reside", "relocate to"):
 		return "onsite"
 	case strings.Contains(blob, "remote"):
 		return "remote"
