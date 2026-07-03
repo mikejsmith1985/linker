@@ -2,9 +2,20 @@ package web
 
 import "github.com/mikejsmith1985/linker/internal/store"
 
+// SearchStarted is the fragment shown after a search is kicked off — the search
+// runs in the background, so the page never navigates and typed input is kept.
+templ SearchStarted(searchID int64, label string) {
+	<div class="started">
+		🔄 <strong>{ label }</strong> started in the background.
+		<a href={ templ.SafeURL(searchPath(searchID)) }>View progress →</a>
+		&nbsp;· it will appear on <a href="/matches">Matches</a> when done. You can start another search now.
+	</div>
+}
+
 // Home shows the active resume status, a search trigger, and a preferences link.
 templ Home(resume *store.Resume, hasResume bool) {
 	@Layout("linker — matches") {
+		<div id="search-status"></div>
 		<section class="card">
 			<h2>Your resume</h2>
 			if hasResume {
@@ -20,7 +31,7 @@ templ Home(resume *store.Resume, hasResume bool) {
 		<section class="card">
 			<h2>Find matching jobs</h2>
 			<p class="hint">Searches your enabled job sources, scores each opening 1–100 against your resume and preferences, and shows only strong matches (70+).</p>
-			<form method="post" action="/search" class="actions">
+			<form hx-post="/search" hx-target="#search-status" hx-swap="innerHTML" class="actions">
 				<button type="submit" class="primary" disabled?={ !hasResume }>Run search</button>
 			</form>
 			if !hasResume {
@@ -30,7 +41,7 @@ templ Home(resume *store.Resume, hasResume bool) {
 		<section class="card">
 			<h2>Or score specific postings</h2>
 			<p class="hint">Paste one or more job posting URLs (one per line). Each is fetched, scored, and — if it reaches 70 — given tailored documents, just like a discovered match.</p>
-			<form method="post" action="/search/urls">
+			<form hx-post="/search/urls" hx-target="#search-status" hx-swap="innerHTML">
 				<textarea name="urls" rows="4" placeholder="https://…/job/123&#10;https://…/careers/456"></textarea>
 				<div class="actions">
 					<button type="submit" class="secondary" disabled?={ !hasResume }>Score pasted URLs</button>
@@ -40,7 +51,7 @@ templ Home(resume *store.Resume, hasResume bool) {
 		<section class="card">
 			<h2>Or target specific companies</h2>
 			<p class="hint">Enter company names (one per line) to pull openings straight from their careers feed and score them against your resume. Works for employers on Greenhouse or Lever (much of tech); some large enterprises use other systems and won't resolve.</p>
-			<form method="post" action="/search/companies">
+			<form hx-post="/search/companies" hx-target="#search-status" hx-swap="innerHTML">
 				<textarea name="companies" rows="3" placeholder="Stripe&#10;Databricks&#10;Airbnb"></textarea>
 				<div class="actions">
 					<button type="submit" class="secondary" disabled?={ !hasResume }>Search these companies</button>
@@ -125,22 +136,41 @@ templ option(value, label string, selected store.WorkLocation) {
 // per-source health of the search.
 templ Results(search store.Search, matches []store.MatchWithOpening) {
 	@Layout("linker — results") {
-		<section class="card">
-			<h2>Source status</h2>
-			<ul class="health">
-				for name, status := range search.SourceHealth {
-					<li><span class="badge">{ name }</span> { status }</li>
-				}
-			</ul>
-		</section>
-		if len(matches) == 0 {
+		if string(search.Status) == "running" {
+			<section
+				class="card"
+				hx-get={ searchPath(search.ID) }
+				hx-trigger="every 5s"
+				hx-select="main"
+				hx-target="main"
+				hx-swap="outerHTML"
+			>
+				<h2>🔄 Search running…</h2>
+				<p class="hint">Discovering and scoring matches — this can take a few minutes. This page updates automatically, or leave and check <a href="/matches">Matches</a> later.</p>
+			</section>
+		} else if string(search.Status) == "failed" {
 			<section class="card empty">
-				<h2>No qualifying matches</h2>
-				<p class="hint">No opening scored 70 or above. Try broadening your preferences (lower the salary floor or widen the work-location).</p>
+				<h2>Search didn't finish</h2>
+				<p class="hint">Something interrupted this search. Start another from the <a href="/">home page</a>.</p>
 			</section>
 		} else {
-			for _, m := range matches {
-				@matchCard(m)
+			<section class="card">
+				<h2>Source status</h2>
+				<ul class="health">
+					for name, status := range search.SourceHealth {
+						<li><span class="badge">{ name }</span> { status }</li>
+					}
+				</ul>
+			</section>
+			if len(matches) == 0 {
+				<section class="card empty">
+					<h2>No qualifying matches</h2>
+					<p class="hint">No opening scored 70 or above. Try broadening your preferences (lower the salary floor or widen the work-location).</p>
+				</section>
+			} else {
+				for _, m := range matches {
+					@matchCard(m)
+				}
 			}
 		}
 	}

@@ -24,11 +24,12 @@ import (
 	"github.com/go-pdf/fpdf"
 )
 
-// Actions are the orchestrator-backed operations the dashboard can trigger.
+// Actions are the orchestrator-backed operations the dashboard can trigger. The
+// search operations start a background search and return its id immediately.
 type Actions interface {
-	RunSearch(ctx context.Context) (int64, error)
-	RunSearchURLs(ctx context.Context, urls []string) (int64, error)
-	RunSearchCompanies(ctx context.Context, companies []string) (int64, error)
+	StartSearch(ctx context.Context) (int64, error)
+	StartSearchURLs(ctx context.Context, urls []string) (int64, error)
+	StartSearchCompanies(ctx context.Context, companies []string) (int64, error)
 }
 
 // ResumeIngestor validates, parses, and stores an uploaded resume.
@@ -172,16 +173,16 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
-	searchID, err := s.actions.RunSearch(r.Context())
+	searchID, err := s.actions.StartSearch(r.Context())
 	if errors.Is(err, orchestrator.ErrNoResume) {
 		http.Error(w, "upload a resume before searching", http.StatusBadRequest)
 		return
 	}
 	if err != nil {
-		s.fail(w, "run search", err)
+		s.fail(w, "start search", err)
 		return
 	}
-	http.Redirect(w, r, fmt.Sprintf("/search/%d", searchID), http.StatusSeeOther)
+	s.render(w, r, SearchStarted(searchID, "Discovery search"))
 }
 
 // handleSearchURLs scores one or more user-pasted posting URLs (FR-021).
@@ -195,16 +196,16 @@ func (s *Server) handleSearchURLs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "paste at least one posting URL", http.StatusBadRequest)
 		return
 	}
-	searchID, err := s.actions.RunSearchURLs(r.Context(), urls)
+	searchID, err := s.actions.StartSearchURLs(r.Context(), urls)
 	if errors.Is(err, orchestrator.ErrNoResume) {
 		http.Error(w, "upload a resume before searching", http.StatusBadRequest)
 		return
 	}
 	if err != nil {
-		s.fail(w, "run url search", err)
+		s.fail(w, "start url search", err)
 		return
 	}
-	http.Redirect(w, r, fmt.Sprintf("/search/%d", searchID), http.StatusSeeOther)
+	s.render(w, r, SearchStarted(searchID, "Pasted-URL search"))
 }
 
 // handleSearchCompanies scores openings pulled from named companies' ATS feeds.
@@ -218,16 +219,16 @@ func (s *Server) handleSearchCompanies(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "enter at least one company name", http.StatusBadRequest)
 		return
 	}
-	searchID, err := s.actions.RunSearchCompanies(r.Context(), companies)
+	searchID, err := s.actions.StartSearchCompanies(r.Context(), companies)
 	if errors.Is(err, orchestrator.ErrNoResume) {
 		http.Error(w, "upload a resume before searching", http.StatusBadRequest)
 		return
 	}
 	if err != nil {
-		s.fail(w, "run company search", err)
+		s.fail(w, "start company search", err)
 		return
 	}
-	http.Redirect(w, r, fmt.Sprintf("/search/%d", searchID), http.StatusSeeOther)
+	s.render(w, r, SearchStarted(searchID, "Company search"))
 }
 
 func (s *Server) handleSearchResults(w http.ResponseWriter, r *http.Request) {
@@ -578,6 +579,8 @@ func sourcesText(o store.JobOpening) string {
 
 func jobPath(matchID int64) string { return fmt.Sprintf("/job/%d", matchID) }
 
+func searchPath(searchID int64) string { return fmt.Sprintf("/search/%d", searchID) }
+
 func docSavePath(matchID int64, docType store.DocType) string {
 	return fmt.Sprintf("/job/%d/documents/%s", matchID, docType)
 }
@@ -699,6 +702,8 @@ button:disabled { opacity:.5; cursor:not-allowed; }
 .ghost { background:transparent; color:var(--muted); border:1px solid #2a2e38; }
 .ghost:hover { color:var(--ink); }
 .pass-select { margin-left:0; background:transparent; color:var(--muted); border:1px solid #2a2e38; border-radius:9px; padding:.55rem .8rem; font-size:1rem; }
+.started { background:rgba(59,130,246,.12); border:1px solid var(--accent); border-radius:10px; padding:.8rem 1rem; margin-bottom:1rem; }
+.started a { color:var(--accent); }
 .btn { display:inline-block; text-decoration:none; border-radius:9px; padding:.6rem 1rem; font-size:1rem; }
 a.primary.btn { color:#fff; }
 a.secondary.btn { color:var(--ink); }

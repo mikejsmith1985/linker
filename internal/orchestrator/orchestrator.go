@@ -75,13 +75,36 @@ var ErrURLSearchUnavailable = errors.New("paste-a-URL search is not available")
 // ErrCompanySearchUnavailable is returned when company search is not configured.
 var ErrCompanySearchUnavailable = errors.New("company search is not available")
 
-// RunSearch performs one on-demand search over the configured sources.
+// StartSearch kicks off a search over the configured sources in the background
+// and returns the new search id immediately, so the caller (a web request) is
+// never blocked and the search survives the request/tab closing.
+func (o *Orchestrator) StartSearch(ctx context.Context) (int64, error) {
+	return o.startWith(ctx, o.disc)
+}
+
+// StartSearchURLs starts a background search over user-pasted posting URLs.
+func (o *Orchestrator) StartSearchURLs(ctx context.Context, urls []string) (int64, error) {
+	if o.urlDisc == nil {
+		return 0, ErrURLSearchUnavailable
+	}
+	return o.startWith(ctx, o.urlDisc(urls))
+}
+
+// StartSearchCompanies starts a background search over named companies' ATS feeds.
+func (o *Orchestrator) StartSearchCompanies(ctx context.Context, companies []string) (int64, error) {
+	if o.companyDisc == nil {
+		return 0, ErrCompanySearchUnavailable
+	}
+	return o.startWith(ctx, o.companyDisc(companies))
+}
+
+// RunSearch runs a search synchronously (used in tests and by any caller that
+// wants to block until completion).
 func (o *Orchestrator) RunSearch(ctx context.Context) (int64, error) {
 	return o.runWith(ctx, o.disc)
 }
 
-// RunSearchURLs scores a set of user-pasted posting URLs like a discovered
-// search (FR-021).
+// RunSearchURLs / RunSearchCompanies are synchronous variants.
 func (o *Orchestrator) RunSearchURLs(ctx context.Context, urls []string) (int64, error) {
 	if o.urlDisc == nil {
 		return 0, ErrURLSearchUnavailable
@@ -89,8 +112,6 @@ func (o *Orchestrator) RunSearchURLs(ctx context.Context, urls []string) (int64,
 	return o.runWith(ctx, o.urlDisc(urls))
 }
 
-// RunSearchCompanies scores openings pulled straight from the named companies'
-// public ATS feeds (FR-021-adjacent company targeting).
 func (o *Orchestrator) RunSearchCompanies(ctx context.Context, companies []string) (int64, error) {
 	if o.companyDisc == nil {
 		return 0, ErrCompanySearchUnavailable
@@ -98,47 +119,71 @@ func (o *Orchestrator) RunSearchCompanies(ctx context.Context, companies []strin
 	return o.runWith(ctx, o.companyDisc(companies))
 }
 
-// runWith performs one on-demand search using the given discoverer and returns
-// the new search id.
-func (o *Orchestrator) runWith(ctx context.Context, disc Discoverer) (int64, error) {
+// prepare loads the active resume and preferences and opens a new search row.
+func (o *Orchestrator) prepare(ctx context.Context) (store.Resume, store.Preferences, int64, error) {
 	resume, err := o.store.GetActiveResume(ctx)
 	if errors.Is(err, store.ErrNotFound) {
-		return 0, ErrNoResume
+		return store.Resume{}, store.Preferences{}, 0, ErrNoResume
 	}
 	if err != nil {
-		return 0, fmt.Errorf("load resume: %w", err)
+		return store.Resume{}, store.Preferences{}, 0, fmt.Errorf("load resume: %w", err)
 	}
 	prefs, err := o.store.GetPreferences(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("load preferences: %w", err)
+		return store.Resume{}, store.Preferences{}, 0, fmt.Errorf("load preferences: %w", err)
 	}
-
 	searchID, err := o.store.CreateSearch(ctx, resume.ID, prefs)
 	if err != nil {
-		return 0, fmt.Errorf("create search: %w", err)
+		return store.Resume{}, store.Preferences{}, 0, fmt.Errorf("create search: %w", err)
 	}
+	return resume, prefs, searchID, nil
+}
 
+// runWith prepares and executes a search synchronously.
+func (o *Orchestrator) runWith(ctx context.Context, disc Discoverer) (int64, error) {
+	resume, prefs, searchID, err := o.prepare(ctx)
+	if err != nil {
+		return 0, err
+	}
+	o.execute(ctx, searchID, resume, prefs, disc)
+	return searchID, nil
+}
+
+// startWith prepares a search, then runs it on a detached context in the
+// background so the caller returns immediately.
+func (o *Orchestrator) startWith(ctx context.Context, disc Discoverer) (int64, error) {
+	resume, prefs, searchID, err := o.prepare(ctx)
+	if err != nil {
+		return 0, err
+	}
+	go o.execute(context.Background(), searchID, resume, prefs, disc)
+	return searchID, nil
+}
+
+// execute runs the discover -> score -> persist pipeline and marks the search
+// completed or failed. It is designed to run in the background.
+func (o *Orchestrator) execute(ctx context.Context, searchID int64, resume store.Resume, prefs store.Preferences, disc Discoverer) {
 	openings, health := disc.Discover(ctx, buildQuery(resume, prefs))
 
 	scoredList, err := o.scoreAll(ctx, openings, resume, prefs)
 	if err != nil {
+		o.log.Error("search scoring failed", "search_id", searchID, "err", err)
 		_ = o.store.FinishSearch(ctx, searchID, store.SearchFailed, health)
-		return 0, err
+		return
 	}
 
-	// Rank by descending score, then persist match results with their rank.
 	sort.SliceStable(scoredList, func(i, j int) bool {
 		return scoredList[i].result.Value > scoredList[j].result.Value
 	})
 	if err := o.persistResults(ctx, searchID, scoredList, resume); err != nil {
+		o.log.Error("search persist failed", "search_id", searchID, "err", err)
 		_ = o.store.FinishSearch(ctx, searchID, store.SearchFailed, health)
-		return 0, err
+		return
 	}
 
 	if err := o.store.FinishSearch(ctx, searchID, store.SearchCompleted, health); err != nil {
-		return 0, fmt.Errorf("finish search: %w", err)
+		o.log.Error("finish search failed", "search_id", searchID, "err", err)
 	}
-	return searchID, nil
 }
 
 // scoreAll persists each opening and computes its score, reusing a prior score

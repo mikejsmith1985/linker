@@ -43,6 +43,11 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err := st.RunMigrations(ctx); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
+	// A search left "running" by a previous process (e.g. a restart mid-search)
+	// can never finish; mark such searches failed so they don't hang.
+	if err := st.FailRunningSearches(ctx); err != nil {
+		return fmt.Errorf("clean up running searches: %w", err)
+	}
 
 	ac := anthropic.NewClient(option.WithAPIKey(cfg.AnthropicAPIKey))
 	llm := claude.NewClient(&ac.Messages, cfg.ClaudeModel)
