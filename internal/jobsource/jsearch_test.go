@@ -15,7 +15,7 @@ const jsearchFixture = `{
         "job_title": "Senior Backend Engineer",
         "employer_name": "Acme",
         "job_apply_link": "https://www.linkedin.com/jobs/view/123",
-        "job_description": "Build Go services.",
+        "job_description": "Build Go services. This is a fully remote role.",
         "job_is_remote": true,
         "job_city": "New York",
         "job_state": "NY",
@@ -155,5 +155,40 @@ func TestJSearchNotRemoteDefaultsToOnsite(t *testing.T) {
 	}
 	if out[0].WorkLocationType != "onsite" {
 		t.Errorf("WorkLocationType = %q, want onsite (not-remote must not stay unknown)", out[0].WorkLocationType)
+	}
+}
+
+func TestJSearchRemoteTitleWithCityIsHybrid(t *testing.T) {
+	// "Remote ... Coach" in the title but a specific city location and no explicit
+	// fully-remote phrase — the classic hybrid-in-disguise. Must NOT be remote.
+	body := `{"data":{"jobs":[
+	  {"job_title":"Remote Agile Transformation Coach for High-Impact Delivery","employer_name":"NTT DATA","job_apply_link":"https://x",
+	   "job_description":"Looking for an Agile Transformation Coach to mentor Scrum Masters and coach teams on Agile and DevOps.",
+	   "job_is_remote":true,"job_city":"Arlington","job_state":"Virginia","job_country":"US"}
+	]}}`
+	j := NewJSearch("k")
+	j.http = &fakeRoundTripper{body: body}
+	out, err := j.Discover(context.Background(), Query{Keywords: []string{"coach"}})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if out[0].WorkLocationType == "remote" {
+		t.Errorf("WorkLocationType = remote, want hybrid/onsite (remote title + specific city is not truly remote)")
+	}
+}
+
+func TestIsSpecificLocation(t *testing.T) {
+	cases := map[string]bool{
+		"Arlington, Virginia, US": true,
+		"New York, NY, US":        true,
+		"Anywhere":                false,
+		"Remote, US":              false,
+		"United States":           false,
+		"":                        false,
+	}
+	for loc, want := range cases {
+		if got := isSpecificLocation(loc); got != want {
+			t.Errorf("isSpecificLocation(%q) = %v, want %v", loc, got, want)
+		}
 	}
 }
