@@ -47,10 +47,14 @@ type Resume struct {
 
 // Preferences are the scoring inputs. A single active row exists at a time.
 type Preferences struct {
-	ID                   int64
-	RequiredSalaryMin    int // 0 = unset
-	SalaryCurrency       string
-	WorkLocationPref     WorkLocation
+	ID                int64
+	RequiredSalaryMin int // 0 = unset
+	SalaryCurrency    string
+	WorkLocationPref  WorkLocation
+	// StrictWorkLocation hard-excludes roles that conflict with the work-location
+	// preference (e.g. hybrid/onsite for a remote preference) instead of merely
+	// penalizing them.
+	StrictWorkLocation   bool
 	Location             string // the user's base location/region, e.g. "United States"
 	WillingToTravel      bool
 	WillingToRelocate    bool
@@ -84,6 +88,7 @@ type JobOpening struct {
 	SourceNames      []string
 	OriginalURL      string
 	ReviewStatus     string // new | interested | passed
+	ReviewReason     string // optional note on why a job was passed
 	DiscoveredAt     time.Time
 }
 

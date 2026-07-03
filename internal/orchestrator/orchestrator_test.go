@@ -58,7 +58,7 @@ func (e errorString) Error() string { return string(e) }
 func (f *fakeStore) FindScoredOpening(context.Context, string) (store.MatchResult, error) {
 	return store.MatchResult{}, store.ErrNotFound
 }
-func (f *fakeStore) SetOpeningReviewStatus(context.Context, int64, string) error { return nil }
+func (f *fakeStore) SetOpeningReviewStatus(context.Context, int64, string, string) error { return nil }
 func (f *fakeStore) LatestCompletedSearchID(context.Context) (int64, error) {
 	return 0, store.ErrNotFound
 }
@@ -140,6 +140,30 @@ func TestRunSearchRanksAndFlagsQualifying(t *testing.T) {
 	}
 	if st.finishedWith["broken"] != jobsource.HealthFailed {
 		t.Errorf("health not recorded: %v", st.finishedWith)
+	}
+}
+
+func TestRunSearchHardExcludesHybridWhenStrict(t *testing.T) {
+	st := &fakeStore{
+		resume: store.Resume{ID: 1, StructuredProfile: "Skills: Go", RawText: "facts"},
+		prefs:  store.Preferences{WorkLocationPref: store.WorkRemote, StrictWorkLocation: true},
+	}
+	disc := fakeDiscoverer{
+		openings: []store.JobOpening{
+			{Title: "Hybrid Role", CanonicalKey: "k-h", WorkLocationType: store.WorkHybrid},
+			{Title: "Remote Role", CanonicalKey: "k-r", WorkLocationType: store.WorkRemote},
+		},
+		health: map[string]string{"src": jobsource.HealthSucceeded},
+	}
+	scorer := fakeScorer{byTitle: map[string]int{"Hybrid Role": 95, "Remote Role": 80}}
+
+	orch := New(st, disc, scorer, nil, nil, nil, nil)
+	if _, err := orch.RunSearch(context.Background()); err != nil {
+		t.Fatalf("RunSearch: %v", err)
+	}
+	// Only the remote role is scored/persisted; the hybrid one is dropped outright.
+	if len(st.created) != 1 || st.created[0].Score != 80 {
+		t.Errorf("created = %+v, want only the remote role (hybrid hard-excluded)", st.created)
 	}
 }
 

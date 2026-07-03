@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS preferences (
     required_salary_min    INTEGER     NOT NULL DEFAULT 0,
     salary_currency        TEXT        NOT NULL DEFAULT 'USD',
     work_location_pref     TEXT        NOT NULL DEFAULT 'remote',
+    strict_work_location   BOOLEAN     NOT NULL DEFAULT TRUE,
     location               TEXT        NOT NULL DEFAULT 'United States',
     willing_to_travel      BOOLEAN     NOT NULL DEFAULT FALSE,
     willing_to_relocate    BOOLEAN     NOT NULL DEFAULT FALSE,
@@ -23,8 +24,9 @@ CREATE TABLE IF NOT EXISTS preferences (
     enabled_sources        JSONB       NOT NULL DEFAULT '[]',
     updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
 );
--- Add the location column to preferences tables created before it existed.
+-- Add columns to preferences tables created before they existed.
 ALTER TABLE preferences ADD COLUMN IF NOT EXISTS location TEXT NOT NULL DEFAULT 'United States';
+ALTER TABLE preferences ADD COLUMN IF NOT EXISTS strict_work_location BOOLEAN NOT NULL DEFAULT TRUE;
 
 CREATE TABLE IF NOT EXISTS searches (
     id                   BIGSERIAL PRIMARY KEY,
@@ -50,11 +52,13 @@ CREATE TABLE IF NOT EXISTS job_openings (
     source_names       JSONB       NOT NULL DEFAULT '[]',
     original_url       TEXT        NOT NULL DEFAULT '',
     review_status      TEXT        NOT NULL DEFAULT 'new',
+    review_reason      TEXT        NOT NULL DEFAULT '',
     discovered_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 -- Persist review state on the opening (not the per-search row) so a Pass/Interested
--- mark survives re-runs. Add the column to tables created before it existed.
+-- mark survives re-runs. Add the columns to tables created before they existed.
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'new';
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS review_reason TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS match_results (
     id                BIGSERIAL PRIMARY KEY,

@@ -152,6 +152,7 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		RequiredSalaryMin:    atoiOrZero(r.FormValue("required_salary_min")),
 		SalaryCurrency:       "USD",
 		WorkLocationPref:     parseWorkLocation(r.FormValue("work_location_pref")),
+		StrictWorkLocation:   r.FormValue("strict_work_location") != "",
 		Location:             defaultLocation(r.FormValue("location")),
 		WillingToTravel:      r.FormValue("willing_to_travel") != "",
 		WillingToRelocate:    r.FormValue("willing_to_relocate") != "",
@@ -284,16 +285,21 @@ func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid review status", http.StatusBadRequest)
 		return
 	}
+	reason := ""
+	if status == store.ReviewPassed {
+		reason = strings.TrimSpace(r.FormValue("reason"))
+	}
 	match, err := s.store.GetMatchWithOpening(r.Context(), id)
 	if err != nil {
 		s.fail(w, "load match", err)
 		return
 	}
-	if err := s.store.SetOpeningReviewStatus(r.Context(), match.JobOpeningID, status); err != nil {
+	if err := s.store.SetOpeningReviewStatus(r.Context(), match.JobOpeningID, status, reason); err != nil {
 		s.fail(w, "save review", err)
 		return
 	}
 	match.Opening.ReviewStatus = status
+	match.Opening.ReviewReason = reason
 	s.render(w, r, matchCard(match))
 }
 
@@ -673,6 +679,7 @@ button:disabled { opacity:.5; cursor:not-allowed; }
 .secondary { background:#272b35; color:var(--ink); }
 .ghost { background:transparent; color:var(--muted); border:1px solid #2a2e38; }
 .ghost:hover { color:var(--ink); }
+.pass-select { margin-left:0; background:transparent; color:var(--muted); border:1px solid #2a2e38; border-radius:9px; padding:.55rem .8rem; font-size:1rem; }
 .btn { display:inline-block; text-decoration:none; border-radius:9px; padding:.6rem 1rem; font-size:1rem; }
 a.primary.btn { color:#fff; }
 a.secondary.btn { color:var(--ink); }

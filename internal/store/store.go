@@ -44,7 +44,7 @@ type Store interface {
 
 	UpsertOpening(ctx context.Context, o JobOpening) (int64, error)
 	FindScoredOpening(ctx context.Context, canonicalKey string) (MatchResult, error)
-	SetOpeningReviewStatus(ctx context.Context, openingID int64, status string) error
+	SetOpeningReviewStatus(ctx context.Context, openingID int64, status, reason string) error
 
 	CreateMatchResult(ctx context.Context, m MatchResult) (int64, error)
 	ListQualifying(ctx context.Context, searchID int64) ([]MatchWithOpening, error)
@@ -123,11 +123,11 @@ func (s *PG) SavePreferences(ctx context.Context, p Preferences) (int64, error) 
 	var id int64
 	err = s.db.QueryRow(ctx,
 		`INSERT INTO preferences
-		   (required_salary_min, salary_currency, work_location_pref, location, willing_to_travel,
-		    willing_to_relocate, browser_automation_ack, enabled_sources, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now()) RETURNING id`,
+		   (required_salary_min, salary_currency, work_location_pref, strict_work_location, location,
+		    willing_to_travel, willing_to_relocate, browser_automation_ack, enabled_sources, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now()) RETURNING id`,
 		p.RequiredSalaryMin, defaultString(p.SalaryCurrency, "USD"), string(defaultWorkLocation(p.WorkLocationPref)),
-		defaultString(p.Location, "United States"),
+		p.StrictWorkLocation, defaultString(p.Location, "United States"),
 		p.WillingToTravel, p.WillingToRelocate, p.BrowserAutomationAck, string(sources),
 	).Scan(&id)
 	if err != nil {
@@ -143,13 +143,13 @@ func (s *PG) GetPreferences(ctx context.Context) (Preferences, error) {
 	var loc string
 	var sources []byte
 	err := s.db.QueryRow(ctx,
-		`SELECT id, required_salary_min, salary_currency, work_location_pref, location, willing_to_travel,
-		        willing_to_relocate, browser_automation_ack, enabled_sources, updated_at
+		`SELECT id, required_salary_min, salary_currency, work_location_pref, strict_work_location, location,
+		        willing_to_travel, willing_to_relocate, browser_automation_ack, enabled_sources, updated_at
 		   FROM preferences ORDER BY id DESC LIMIT 1`,
-	).Scan(&p.ID, &p.RequiredSalaryMin, &p.SalaryCurrency, &loc, &p.Location, &p.WillingToTravel,
+	).Scan(&p.ID, &p.RequiredSalaryMin, &p.SalaryCurrency, &loc, &p.StrictWorkLocation, &p.Location, &p.WillingToTravel,
 		&p.WillingToRelocate, &p.BrowserAutomationAck, &sources, &p.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Preferences{SalaryCurrency: "USD", WorkLocationPref: WorkRemote, Location: "United States"}, nil
+		return Preferences{SalaryCurrency: "USD", WorkLocationPref: WorkRemote, StrictWorkLocation: true, Location: "United States"}, nil
 	}
 	if err != nil {
 		return Preferences{}, fmt.Errorf("get preferences: %w", err)
@@ -264,9 +264,10 @@ func (s *PG) UpsertOpening(ctx context.Context, o JobOpening) (int64, error) {
 
 // SetOpeningReviewStatus persists a Pass/Interested/new mark on the opening, so
 // it survives future searches (the opening row is reused across searches).
-func (s *PG) SetOpeningReviewStatus(ctx context.Context, openingID int64, status string) error {
+func (s *PG) SetOpeningReviewStatus(ctx context.Context, openingID int64, status, reason string) error {
 	_, err := s.db.Exec(ctx,
-		`UPDATE job_openings SET review_status = $2 WHERE id = $1`, openingID, status)
+		`UPDATE job_openings SET review_status = $2, review_reason = $3 WHERE id = $1`,
+		openingID, status, reason)
 	if err != nil {
 		return fmt.Errorf("set review status: %w", err)
 	}
@@ -323,7 +324,7 @@ func (s *PG) ListQualifying(ctx context.Context, searchID int64) ([]MatchWithOpe
 		`SELECT m.id, m.search_id, m.job_opening_id, m.score, m.score_explanation,
 		        m.gate_penalties, m.is_qualifying, m.rank,
 		        o.id, o.canonical_key, o.title, o.employer, o.location, o.work_location_type,
-		        o.salary_min, o.salary_max, o.description, o.source_names, o.original_url, o.review_status, o.discovered_at
+		        o.salary_min, o.salary_max, o.description, o.source_names, o.original_url, o.review_status, o.review_reason, o.discovered_at
 		   FROM match_results m JOIN job_openings o ON o.id = m.job_opening_id
 		  WHERE m.search_id = $1 AND m.is_qualifying = TRUE
 		  ORDER BY m.rank ASC`, searchID)
@@ -352,7 +353,7 @@ func (s *PG) GetMatchWithOpening(ctx context.Context, matchID int64) (MatchWithO
 		`SELECT m.id, m.search_id, m.job_opening_id, m.score, m.score_explanation,
 		        m.gate_penalties, m.is_qualifying, m.rank,
 		        o.id, o.canonical_key, o.title, o.employer, o.location, o.work_location_type,
-		        o.salary_min, o.salary_max, o.description, o.source_names, o.original_url, o.review_status, o.discovered_at
+		        o.salary_min, o.salary_max, o.description, o.source_names, o.original_url, o.review_status, o.review_reason, o.discovered_at
 		   FROM match_results m JOIN job_openings o ON o.id = m.job_opening_id
 		  WHERE m.id = $1`, matchID)
 	mw, err := scanMatchWithOpening(row)
@@ -379,7 +380,7 @@ func scanMatchWithOpening(row scanDest) (MatchWithOpening, error) {
 		&penalties, &mw.IsQualifying, &mw.Rank,
 		&mw.Opening.ID, &mw.Opening.CanonicalKey, &mw.Opening.Title, &mw.Opening.Employer,
 		&mw.Opening.Location, &loc, &mw.Opening.SalaryMin, &mw.Opening.SalaryMax,
-		&mw.Opening.Description, &names, &mw.Opening.OriginalURL, &mw.Opening.ReviewStatus, &mw.Opening.DiscoveredAt,
+		&mw.Opening.Description, &names, &mw.Opening.OriginalURL, &mw.Opening.ReviewStatus, &mw.Opening.ReviewReason, &mw.Opening.DiscoveredAt,
 	)
 	if err != nil {
 		return MatchWithOpening{}, err

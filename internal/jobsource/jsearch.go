@@ -98,6 +98,8 @@ func (j *JSearch) searchOne(ctx context.Context, term string) ([]RawOpening, err
 	params.Set("page", "1")
 	params.Set("num_pages", strconv.Itoa(j.numPages))
 	params.Set("country", j.country)
+	// Bias toward fresher postings to cut down on expired/closed listings.
+	params.Set("date_posted", "month")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, j.baseURL+"?"+params.Encode(), nil)
 	if err != nil {
