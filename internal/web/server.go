@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -594,6 +595,20 @@ func docTypeLabel(docType store.DocType) string {
 func joinFlags(flags []string) string { return strings.Join(flags, ", ") }
 
 func joinLines(items []string) string { return strings.Join(items, "\n") }
+
+// careersSearchURL builds a Google search that surfaces the employer's own
+// careers-page posting for a role — the best place to apply for a direct
+// employer, bypassing aggregator Quick-Apply.
+func careersSearchURL(employer, title string) string {
+	q := url.QueryEscape(fmt.Sprintf("%s careers %s", strings.TrimSpace(employer), strings.TrimSpace(title)))
+	return "https://www.google.com/search?q=" + q
+}
+
+// linkedInSearchURL builds a LinkedIn jobs search for the role at the employer.
+func linkedInSearchURL(employer, title string) string {
+	q := url.QueryEscape(strings.TrimSpace(title + " " + employer))
+	return "https://www.linkedin.com/jobs/search/?keywords=" + q
+}
 
 // reviewClass maps a review status to a CSS class for styling the card.
 func reviewClass(status string) string {

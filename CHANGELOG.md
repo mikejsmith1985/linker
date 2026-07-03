@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **How to apply** guidance on each job: a "Find on the company's careers site"
+  link (and a LinkedIn search) plus advice that aggregator "Quick Apply" is often
+  filtered by ATS — apply on a direct employer's own careers page when possible.
 - **Target roles** preference: type job titles to search for (one per line) —
   they're searched first, alongside the roles inferred from your resume. Ideal for
   pivoting toward roles you want (e.g. AI-first / agentic titles). JSearch now
