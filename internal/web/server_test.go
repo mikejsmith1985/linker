@@ -575,7 +575,7 @@ func TestCareersAndLinkedInSearchURLs(t *testing.T) {
 func TestAssistantPageRenders(t *testing.T) {
 	st := &webFakeStore{}
 	rr := httptest.NewRecorder()
-	newTestServer(st).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/assistant", nil))
+	newTestServer(st).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/assistant/panel", nil))
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "Assistant") {
 		t.Errorf("assistant page did not render (code %d)", rr.Code)
 	}

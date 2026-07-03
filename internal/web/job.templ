@@ -51,14 +51,22 @@ templ documentCard(matchID int64, doc store.GeneratedDocument) {
 				<strong>{ joinFlags(doc.FabricationFlags) }</strong>. Remove or substantiate them before submitting.
 			</p>
 		}
-		<form method="post" action={ templ.SafeURL(docSavePath(matchID, doc.Type)) }>
-			<textarea name="content" rows="14">{ doc.ContentMarkdown }</textarea>
-			<div class="actions">
-				<button type="submit" class="primary">Save edits</button>
-				<a class="secondary btn" href={ templ.SafeURL(docDownloadPath(matchID, doc.Type, "pdf")) }>Download PDF</a>
-				<a class="secondary btn" href={ templ.SafeURL(docDownloadPath(matchID, doc.Type, "txt")) }>Download TXT</a>
-				<a class="secondary btn" href={ templ.SafeURL(docDownloadPath(matchID, doc.Type, "md")) }>Download MD</a>
-			</div>
-		</form>
+		<div class="doc-preview">
+			@renderMarkdown(doc.ContentMarkdown)
+		</div>
+		<details class="doc-edit">
+			<summary>Edit</summary>
+			<form method="post" action={ templ.SafeURL(docSavePath(matchID, doc.Type)) }>
+				<textarea name="content" rows="16">{ doc.ContentMarkdown }</textarea>
+				<div class="actions">
+					<button type="submit" class="primary">Save edits</button>
+				</div>
+			</form>
+		</details>
+		<div class="actions">
+			<a class="secondary btn" href={ templ.SafeURL(docDownloadPath(matchID, doc.Type, "pdf")) }>Download PDF</a>
+			<a class="secondary btn" href={ templ.SafeURL(docDownloadPath(matchID, doc.Type, "txt")) }>Download TXT</a>
+			<a class="secondary btn" href={ templ.SafeURL(docDownloadPath(matchID, doc.Type, "md")) }>Download MD</a>
+		</div>
 	</section>
 }
