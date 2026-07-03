@@ -50,6 +50,7 @@ type Store interface {
 
 	CreateMatchResult(ctx context.Context, m MatchResult) (int64, error)
 	ListQualifying(ctx context.Context, searchID int64) ([]MatchWithOpening, error)
+	ListAllQualifying(ctx context.Context) ([]MatchWithOpening, error)
 	GetMatchWithOpening(ctx context.Context, matchID int64) (MatchWithOpening, error)
 
 	SaveDocument(ctx context.Context, d GeneratedDocument) (int64, error)
@@ -396,6 +397,42 @@ func (s *PG) ListQualifying(ctx context.Context, searchID int64) ([]MatchWithOpe
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate qualifying: %w", err)
+	}
+	return out, nil
+}
+
+// ListAllQualifying returns every qualifying opening ever found, de-duplicated to
+// its most recent match, ranked by score. This is the persistent Matches view:
+// a later empty search never hides results an earlier search found.
+func (s *PG) ListAllQualifying(ctx context.Context) ([]MatchWithOpening, error) {
+	rows, err := s.db.Query(ctx,
+		`SELECT * FROM (
+		   SELECT DISTINCT ON (o.id)
+		          m.id, m.search_id, m.job_opening_id, m.score, m.score_explanation,
+		          m.gate_penalties, m.is_qualifying, m.rank,
+		          o.id AS oid, o.canonical_key, o.title, o.employer, o.location, o.work_location_type,
+		          o.salary_min, o.salary_max, o.description, o.source_names, o.original_url, o.employer_website,
+		          o.review_status, o.review_reason, o.discovered_at
+		     FROM match_results m JOIN job_openings o ON o.id = m.job_opening_id
+		    WHERE m.is_qualifying = TRUE
+		    ORDER BY o.id, m.id DESC
+		 ) latest
+		 ORDER BY latest.score DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("list all qualifying: %w", err)
+	}
+	defer rows.Close()
+
+	var out []MatchWithOpening
+	for rows.Next() {
+		mw, err := scanMatchWithOpening(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, mw)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate all qualifying: %w", err)
 	}
 	return out, nil
 }

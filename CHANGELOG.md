@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The **Matches page now accumulates results across all searches** (de-duplicated
+  to each opening's most recent match, ranked by score) instead of showing only
+  the latest search. A later search that finds nothing — or a narrow company/URL
+  search — no longer hides matches an earlier search found.
 - **Recent searches** activity list on the home page: every search (discovery,
   URL, or company) now shows up with its status, run time, and qualifying-match
   count, auto-refreshing from "running" to "completed in Ns · N matches". This
