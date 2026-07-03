@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The employer's own website is captured from JSearch and shown as a direct
+  "🏢 Company website" link on the job's How-to-apply section when available.
 - **Asynchronous searches**: a search now runs in the background and returns
   immediately instead of blocking the browser for minutes. The search forms
   submit without navigating away (so typed input — e.g. a company list — is no

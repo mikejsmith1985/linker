@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS job_openings (
     description        TEXT        NOT NULL DEFAULT '',
     source_names       JSONB       NOT NULL DEFAULT '[]',
     original_url       TEXT        NOT NULL DEFAULT '',
+    employer_website   TEXT        NOT NULL DEFAULT '',
     review_status      TEXT        NOT NULL DEFAULT 'new',
     review_reason      TEXT        NOT NULL DEFAULT '',
     discovered_at      TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -63,6 +64,7 @@ CREATE TABLE IF NOT EXISTS job_openings (
 -- mark survives re-runs. Add the columns to tables created before they existed.
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'new';
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS review_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS employer_website TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS match_results (
     id                BIGSERIAL PRIMARY KEY,

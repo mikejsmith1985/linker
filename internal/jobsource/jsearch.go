@@ -46,6 +46,7 @@ func (j *JSearch) Name() string { return "jsearch" }
 type jsearchJob struct {
 	JobTitle         string `json:"job_title"`
 	EmployerName     string `json:"employer_name"`
+	EmployerWebsite  string `json:"employer_website"`
 	JobApplyLink     string `json:"job_apply_link"`
 	JobApplyIsDirect bool   `json:"job_apply_is_direct"`
 	ApplyOptions     []struct {
@@ -134,6 +135,7 @@ func (j *JSearch) searchOne(ctx context.Context, term string) ([]RawOpening, err
 		openings = append(openings, RawOpening{
 			Title:            job.JobTitle,
 			Employer:         job.EmployerName,
+			EmployerWebsite:  job.EmployerWebsite,
 			Location:         location,
 			Description:      truncate(job.JobDescription, 4000),
 			OriginalURL:      job.bestApplyLink(),

@@ -93,6 +93,7 @@ type JobOpening struct {
 	Description      string
 	SourceNames      []string
 	OriginalURL      string
+	EmployerWebsite  string // the employer's own site, for a direct-apply link
 	ReviewStatus     string // new | interested | passed
 	ReviewReason     string // optional note on why a job was passed
 	DiscoveredAt     time.Time
