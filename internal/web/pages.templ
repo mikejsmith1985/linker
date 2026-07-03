@@ -310,11 +310,21 @@ templ NoMatches() {
 
 // Matches shows every qualifying opening ever found, ranked by score. This is the
 // persistent, accumulated view — results never disappear because of a newer run.
-templ Matches(matches []store.MatchWithOpening) {
+// Passed roles are hidden unless showPassed is set.
+templ Matches(matches []store.MatchWithOpening, showPassed bool, passedCount int) {
 	@Layout("linker — matches") {
 		<section class="card">
 			<h2>Your matches</h2>
-			<p class="hint">{ matchCountText(len(matches)) } across all your searches, ranked by score. Passed roles are dimmed; interested ones highlighted.</p>
+			<p class="hint">{ matchCountText(len(matches)) } across all your searches, ranked by score. Interested roles are highlighted.</p>
+			if passedCount > 0 {
+				<div class="actions">
+					if showPassed {
+						<a class="secondary btn" href="/matches">Hide passed</a>
+					} else {
+						<a class="secondary btn" href="/matches?passed=1">Show { intText(int64(passedCount)) } passed</a>
+					}
+				</div>
+			}
 		</section>
 		for _, m := range matches {
 			@matchCard(m)

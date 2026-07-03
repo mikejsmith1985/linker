@@ -333,7 +333,21 @@ func (s *Server) handleMatches(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, NoMatches())
 		return
 	}
-	s.render(w, r, Matches(matches))
+	// Passed roles are hidden by default so the list stays focused; a toggle
+	// (?passed=1) brings them back.
+	showPassed := r.URL.Query().Get("passed") == "1"
+	passedCount := 0
+	visible := matches[:0:0]
+	for _, m := range matches {
+		if m.Opening.ReviewStatus == store.ReviewPassed {
+			passedCount++
+			if !showPassed {
+				continue
+			}
+		}
+		visible = append(visible, m)
+	}
+	s.render(w, r, Matches(visible, showPassed, passedCount))
 }
 
 // handleReview persists a Pass/Interested/new mark on the opening and returns the
