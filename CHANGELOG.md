@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Asynchronous searches**: a search now runs in the background and returns
+  immediately instead of blocking the browser for minutes. The search forms
+  submit without navigating away (so typed input — e.g. a company list — is no
+  longer lost), the results page shows a "🔄 running" state that auto-refreshes to
+  completion, and a search survives closing the tab. Searches interrupted by a
+  restart are marked failed at startup instead of hanging.
 - **New roles only** preference: skip any posting already seen in a previous
   search, so each search surfaces only roles you haven't encountered yet
   (a "what's new since last time" mode). Relies on the persisted opening history.

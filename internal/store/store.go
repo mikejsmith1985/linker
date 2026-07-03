@@ -41,6 +41,7 @@ type Store interface {
 	FinishSearch(ctx context.Context, id int64, status SearchStatus, health map[string]string) error
 	GetSearch(ctx context.Context, id int64) (Search, error)
 	LatestCompletedSearchID(ctx context.Context) (int64, error)
+	FailRunningSearches(ctx context.Context) error
 
 	UpsertOpening(ctx context.Context, o JobOpening) (int64, error)
 	FindScoredOpening(ctx context.Context, canonicalKey string) (MatchResult, error)
@@ -220,6 +221,17 @@ func (s *PG) LatestCompletedSearchID(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("latest search: %w", err)
 	}
 	return id, nil
+}
+
+// FailRunningSearches marks any search left in the running state as failed. It is
+// called at startup so a search interrupted by a restart doesn't hang forever.
+func (s *PG) FailRunningSearches(ctx context.Context) error {
+	_, err := s.db.Exec(ctx,
+		`UPDATE searches SET status = 'failed', finished_at = now() WHERE status = 'running'`)
+	if err != nil {
+		return fmt.Errorf("fail running searches: %w", err)
+	}
+	return nil
 }
 
 // GetSearch loads a search by id.

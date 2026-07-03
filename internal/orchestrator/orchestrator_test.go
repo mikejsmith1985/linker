@@ -63,6 +63,7 @@ func (f *fakeStore) FindScoredOpening(_ context.Context, key string) (store.Matc
 	return store.MatchResult{}, store.ErrNotFound
 }
 func (f *fakeStore) SetOpeningReviewStatus(context.Context, int64, string, string) error { return nil }
+func (f *fakeStore) FailRunningSearches(context.Context) error                           { return nil }
 func (f *fakeStore) LatestCompletedSearchID(context.Context) (int64, error) {
 	return 0, store.ErrNotFound
 }
@@ -313,5 +314,30 @@ func TestRunSearchNewRolesOnlySkipsSeen(t *testing.T) {
 	// Only the new role is scored/persisted; the previously-seen one is skipped.
 	if len(st.created) != 1 || st.created[0].Score != 85 {
 		t.Errorf("created = %+v, want only the new role (seen one skipped)", st.created)
+	}
+}
+
+func TestStartSearchReturnsIDImmediately(t *testing.T) {
+	st := &fakeStore{
+		resume: store.Resume{ID: 1, StructuredProfile: "Skills: Go", RawText: "facts"},
+		prefs:  store.Preferences{WorkLocationPref: store.WorkRemote},
+	}
+	disc := fakeDiscoverer{health: map[string]string{"src": jobsource.HealthSucceeded}}
+	orch := New(st, disc, fakeScorer{}, nil, nil, nil, nil)
+
+	id, err := orch.StartSearch(context.Background())
+	if err != nil {
+		t.Fatalf("StartSearch: %v", err)
+	}
+	if id != 100 {
+		t.Errorf("id = %d, want 100 (created synchronously before background run)", id)
+	}
+}
+
+func TestStartSearchErrorsWithoutResume(t *testing.T) {
+	st := &fakeStore{resumeMissing: true}
+	orch := New(st, fakeDiscoverer{}, fakeScorer{}, nil, nil, nil, nil)
+	if _, err := orch.StartSearch(context.Background()); err != ErrNoResume {
+		t.Errorf("err = %v, want ErrNoResume", err)
 	}
 }

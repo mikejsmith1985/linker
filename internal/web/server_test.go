@@ -65,6 +65,7 @@ func (f *webFakeStore) SetOpeningReviewStatus(_ context.Context, _ int64, status
 	f.reviewReason = reason
 	return nil
 }
+func (f *webFakeStore) FailRunningSearches(context.Context) error { return nil }
 func (f *webFakeStore) LatestCompletedSearchID(context.Context) (int64, error) {
 	if f.latestSearchID == 0 {
 		return 0, store.ErrNotFound
@@ -109,13 +110,13 @@ type fakeActions struct {
 	gotCompanies []string
 }
 
-func (a *fakeActions) RunSearch(context.Context) (int64, error) { return a.id, nil }
-func (a *fakeActions) RunSearchURLs(_ context.Context, urls []string) (int64, error) {
+func (a *fakeActions) StartSearch(context.Context) (int64, error) { return a.id, nil }
+func (a *fakeActions) StartSearchURLs(_ context.Context, urls []string) (int64, error) {
 	a.urlsSeen = true
 	a.gotURLs = urls
 	return a.id, nil
 }
-func (a *fakeActions) RunSearchCompanies(_ context.Context, companies []string) (int64, error) {
+func (a *fakeActions) StartSearchCompanies(_ context.Context, companies []string) (int64, error) {
 	a.gotCompanies = companies
 	return a.id, nil
 }
@@ -222,11 +223,11 @@ func TestSearchRedirectsToResults(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/search", nil)
 	rr := httptest.NewRecorder()
 	newTestServer(st).ServeHTTP(rr, req)
-	if rr.Code != http.StatusSeeOther {
-		t.Fatalf("status = %d, want 303", rr.Code)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (started fragment)", rr.Code)
 	}
-	if loc := rr.Header().Get("Location"); loc != "/search/7" {
-		t.Errorf("Location = %q, want /search/7", loc)
+	if !strings.Contains(rr.Body.String(), "/search/7") {
+		t.Error("started fragment should link to the new search")
 	}
 }
 
@@ -331,11 +332,11 @@ func TestSearchURLsParsesAndForwardsURLs(t *testing.T) {
 	rr := httptest.NewRecorder()
 	server.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusSeeOther {
-		t.Fatalf("status = %d, want 303", rr.Code)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (started fragment)", rr.Code)
 	}
-	if rr.Header().Get("Location") != "/search/12" {
-		t.Errorf("Location = %q, want /search/12", rr.Header().Get("Location"))
+	if !strings.Contains(rr.Body.String(), "/search/12") {
+		t.Error("started fragment should link to /search/12")
 	}
 	if len(actions.gotURLs) != 3 {
 		t.Errorf("parsed %d urls, want 3: %v", len(actions.gotURLs), actions.gotURLs)
@@ -354,8 +355,8 @@ func TestSearchCompaniesParsesMultiWordNames(t *testing.T) {
 	rr := httptest.NewRecorder()
 	server.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusSeeOther || rr.Header().Get("Location") != "/search/21" {
-		t.Fatalf("status=%d loc=%q, want 303 /search/21", rr.Code, rr.Header().Get("Location"))
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "/search/21") {
+		t.Fatalf("status=%d, want 200 started fragment linking /search/21", rr.Code)
 	}
 	want := []string{"Stripe", "Match Group", "Databricks"}
 	if len(actions.gotCompanies) != 3 {
