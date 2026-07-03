@@ -42,12 +42,18 @@ type DocumentService interface {
 	EnsureDocument(ctx context.Context, matchID int64, docType store.DocType, opening store.JobOpening, resumeFacts string) (store.GeneratedDocument, error)
 }
 
+// Chatter answers a user's assistant message (and acts on the app).
+type Chatter interface {
+	Handle(ctx context.Context, userText string) (string, error)
+}
+
 // Server holds dependencies for the HTTP handlers.
 type Server struct {
 	store    store.Store
 	ingestor ResumeIngestor
 	actions  Actions
 	docs     DocumentService
+	chat     Chatter
 	log      *slog.Logger
 }
 
@@ -55,11 +61,11 @@ type Server struct {
 const maxResumeBytes = 10 << 20 // 10 MiB
 
 // NewServer builds the dashboard server. A nil logger falls back to default.
-func NewServer(st store.Store, ingestor ResumeIngestor, actions Actions, docs DocumentService, log *slog.Logger) *Server {
+func NewServer(st store.Store, ingestor ResumeIngestor, actions Actions, docs DocumentService, chat Chatter, log *slog.Logger) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Server{store: st, ingestor: ingestor, actions: actions, docs: docs, log: log}
+	return &Server{store: st, ingestor: ingestor, actions: actions, docs: docs, chat: chat, log: log}
 }
 
 // Routes returns the configured HTTP handler.
@@ -75,6 +81,8 @@ func (s *Server) Routes() http.Handler {
 	r.Post("/search/companies", s.handleSearchCompanies)
 	r.Get("/search/{id}", s.handleSearchResults)
 	r.Get("/matches", s.handleMatches)
+	r.Get("/assistant", s.handleAssistant)
+	r.Post("/assistant/message", s.handleAssistantMessage)
 	r.Get("/job/{id}", s.handleJob)
 	r.Post("/job/{id}/review", s.handleReview)
 	r.Post("/job/{id}/documents/{docType}", s.handleSaveDocument)
@@ -256,6 +264,39 @@ func (s *Server) renderSearch(w http.ResponseWriter, r *http.Request, id int64) 
 		return
 	}
 	s.render(w, r, Results(search, matches))
+}
+
+// handleAssistant renders the conversational assistant page with chat history.
+func (s *Server) handleAssistant(w http.ResponseWriter, r *http.Request) {
+	messages, err := s.store.ListChatMessages(r.Context(), 100)
+	if err != nil {
+		s.fail(w, "load chat", err)
+		return
+	}
+	s.render(w, r, AssistantPage(messages))
+}
+
+// handleAssistantMessage runs one assistant turn and returns the updated thread.
+func (s *Server) handleAssistantMessage(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "could not read form", http.StatusBadRequest)
+		return
+	}
+	message := strings.TrimSpace(r.FormValue("message"))
+	if message == "" {
+		http.Error(w, "type a message", http.StatusBadRequest)
+		return
+	}
+	if _, err := s.chat.Handle(r.Context(), message); err != nil {
+		s.fail(w, "assistant", err)
+		return
+	}
+	messages, err := s.store.ListChatMessages(r.Context(), 100)
+	if err != nil {
+		s.fail(w, "load chat", err)
+		return
+	}
+	s.render(w, r, ChatThread(messages))
 }
 
 // handleMatches renders the latest completed search's results, so the user can
@@ -600,6 +641,13 @@ func joinFlags(flags []string) string { return strings.Join(flags, ", ") }
 
 func joinLines(items []string) string { return strings.Join(items, "\n") }
 
+func bubbleClass(role string) string {
+	if role == "assistant" {
+		return "assistant"
+	}
+	return "user"
+}
+
 // careersSearchURL builds a Google search that surfaces the employer's own
 // careers-page posting for a role — the best place to apply for a direct
 // employer, bypassing aggregator Quick-Apply.
@@ -704,6 +752,14 @@ button:disabled { opacity:.5; cursor:not-allowed; }
 .pass-select { margin-left:0; background:transparent; color:var(--muted); border:1px solid #2a2e38; border-radius:9px; padding:.55rem .8rem; font-size:1rem; }
 .started { background:rgba(59,130,246,.12); border:1px solid var(--accent); border-radius:10px; padding:.8rem 1rem; margin-bottom:1rem; }
 .started a { color:var(--accent); }
+.chat { display:flex; flex-direction:column; gap:.7rem; max-height:60vh; overflow-y:auto; margin:1rem 0; padding:.3rem; }
+.bubble { max-width:80%; padding:.6rem .9rem; border-radius:12px; }
+.bubble.user { align-self:flex-end; background:var(--accent); color:#fff; }
+.bubble.assistant { align-self:flex-start; background:#272b35; }
+.bubble-role { display:block; font-size:.72rem; opacity:.6; margin-bottom:.2rem; text-transform:capitalize; }
+.bubble-body { white-space:pre-wrap; }
+.chat-form { display:flex; gap:.6rem; align-items:flex-end; }
+.chat-form textarea { flex:1; }
 .btn { display:inline-block; text-decoration:none; border-radius:9px; padding:.6rem 1rem; font-size:1rem; }
 a.primary.btn { color:#fff; }
 a.secondary.btn { color:var(--ink); }

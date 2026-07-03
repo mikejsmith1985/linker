@@ -92,6 +92,10 @@ func (f *webFakeStore) UpdateDocumentContent(_ context.Context, _ int64, content
 	f.savedContent = content
 	return nil
 }
+func (f *webFakeStore) AppendChatMessage(context.Context, string, string) error { return nil }
+func (f *webFakeStore) ListChatMessages(context.Context, int) ([]store.ChatMessage, error) {
+	return nil, nil
+}
 func (f *webFakeStore) UpsertSelection(_ context.Context, _ int64, opened bool) error {
 	f.openedFlag = opened
 	if opened {
@@ -121,6 +125,11 @@ func (a *fakeActions) StartSearchCompanies(_ context.Context, companies []string
 	return a.id, nil
 }
 
+// fakeChatter is a stub assistant.
+type fakeChatter struct{ reply string }
+
+func (c fakeChatter) Handle(context.Context, string) (string, error) { return c.reply, nil }
+
 // fakeIngestor returns a canned result or error.
 type fakeIngestor struct{ err error }
 
@@ -143,11 +152,11 @@ func (d *fakeDocs) EnsureDocument(_ context.Context, matchID int64, docType stor
 }
 
 func newTestServer(st store.Store) http.Handler {
-	return NewServer(st, fakeIngestor{}, &fakeActions{id: 7}, &fakeDocs{}, nil).Routes()
+	return NewServer(st, fakeIngestor{}, &fakeActions{id: 7}, &fakeDocs{}, fakeChatter{}, nil).Routes()
 }
 
 func newTestServerWithDocs(st store.Store, docs DocumentService) http.Handler {
-	return NewServer(st, fakeIngestor{}, &fakeActions{id: 7}, docs, nil).Routes()
+	return NewServer(st, fakeIngestor{}, &fakeActions{id: 7}, docs, fakeChatter{}, nil).Routes()
 }
 
 func TestSearchResultsShowsQualifyingAndHealth(t *testing.T) {
@@ -192,7 +201,7 @@ func TestSearchResultsEmptyState(t *testing.T) {
 
 func TestUploadRejectsUnreadableResume(t *testing.T) {
 	st := &webFakeStore{}
-	server := NewServer(st, fakeIngestor{err: resume.ErrUnreadable}, &fakeActions{}, &fakeDocs{}, nil).Routes()
+	server := NewServer(st, fakeIngestor{err: resume.ErrUnreadable}, &fakeActions{}, &fakeDocs{}, fakeChatter{}, nil).Routes()
 
 	body, contentType := multipartResume(t, "cv.txt", "anything")
 	req := httptest.NewRequest(http.MethodPost, "/resume", body)
@@ -324,7 +333,7 @@ func TestDownloadDocumentPDF(t *testing.T) {
 func TestSearchURLsParsesAndForwardsURLs(t *testing.T) {
 	st := &webFakeStore{}
 	actions := &fakeActions{id: 12}
-	server := NewServer(st, fakeIngestor{}, actions, &fakeDocs{}, nil).Routes()
+	server := NewServer(st, fakeIngestor{}, actions, &fakeDocs{}, fakeChatter{}, nil).Routes()
 
 	form := "urls=" + "https://a.example/1%0Ahttps://b.example/2%20https://c.example/3"
 	req := httptest.NewRequest(http.MethodPost, "/search/urls", strings.NewReader(form))
@@ -346,7 +355,7 @@ func TestSearchURLsParsesAndForwardsURLs(t *testing.T) {
 func TestSearchCompaniesParsesMultiWordNames(t *testing.T) {
 	st := &webFakeStore{}
 	actions := &fakeActions{id: 21}
-	server := NewServer(st, fakeIngestor{}, actions, &fakeDocs{}, nil).Routes()
+	server := NewServer(st, fakeIngestor{}, actions, &fakeDocs{}, fakeChatter{}, nil).Routes()
 
 	// Newline- and comma-separated; "Match Group" keeps its internal space.
 	form := "companies=" + "Stripe%0AMatch+Group%2C+Databricks"
@@ -560,5 +569,37 @@ func TestCareersAndLinkedInSearchURLs(t *testing.T) {
 	l := linkedInSearchURL("KORE1 Technologies", "Scrum Master")
 	if !strings.HasPrefix(l, "https://www.linkedin.com/jobs/search/?keywords=") {
 		t.Errorf("linkedInSearchURL = %q", l)
+	}
+}
+
+func TestAssistantPageRenders(t *testing.T) {
+	st := &webFakeStore{}
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/assistant", nil))
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "Assistant") {
+		t.Errorf("assistant page did not render (code %d)", rr.Code)
+	}
+}
+
+func TestAssistantMessageRunsAndReturnsThread(t *testing.T) {
+	st := &webFakeStore{}
+	server := NewServer(st, fakeIngestor{}, &fakeActions{}, &fakeDocs{}, fakeChatter{reply: "on it"}, nil).Routes()
+	req := httptest.NewRequest(http.MethodPost, "/assistant/message", strings.NewReader("message=only+remote"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	server.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+}
+
+func TestAssistantMessageRejectsEmpty(t *testing.T) {
+	st := &webFakeStore{}
+	req := httptest.NewRequest(http.MethodPost, "/assistant/message", strings.NewReader("message=  "))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for empty message", rr.Code)
 	}
 }

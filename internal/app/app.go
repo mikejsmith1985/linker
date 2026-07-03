@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/mikejsmith1985/linker/internal/assistant"
 	"github.com/mikejsmith1985/linker/internal/claude"
 	"github.com/mikejsmith1985/linker/internal/config"
 	"github.com/mikejsmith1985/linker/internal/documents"
@@ -74,7 +75,8 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		return jobsource.NewRegistry(jobsource.NewCompanyCareers(companies))
 	}
 	orch := orchestrator.New(st, registry, scorer, docService, urlFactory, companyFactory, log)
-	server := web.NewServer(st, ingestor, orch, docService, log)
+	chatAssistant := assistant.New(llm, st, orch)
+	server := web.NewServer(st, ingestor, orch, docService, chatAssistant, log)
 
 	httpSrv := &http.Server{
 		Addr:              cfg.HTTPAddr,

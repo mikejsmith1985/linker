@@ -90,6 +90,13 @@ CREATE TABLE IF NOT EXISTS generated_documents (
     UNIQUE (match_result_id, doc_type)
 );
 
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id         BIGSERIAL PRIMARY KEY,
+    role       TEXT        NOT NULL,
+    content    TEXT        NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS selections (
     id                 BIGSERIAL PRIMARY KEY,
     match_result_id    BIGINT      NOT NULL UNIQUE REFERENCES match_results(id) ON DELETE CASCADE,

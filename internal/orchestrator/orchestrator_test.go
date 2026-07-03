@@ -85,6 +85,10 @@ func (f *fakeStore) GetDocument(context.Context, int64, store.DocType) (store.Ge
 }
 func (f *fakeStore) UpdateDocumentContent(context.Context, int64, string) error { return nil }
 func (f *fakeStore) UpsertSelection(context.Context, int64, bool) error         { return nil }
+func (f *fakeStore) AppendChatMessage(context.Context, string, string) error    { return nil }
+func (f *fakeStore) ListChatMessages(context.Context, int) ([]store.ChatMessage, error) {
+	return nil, nil
+}
 
 // fakeDiscoverer returns canned openings and health.
 type fakeDiscoverer struct {
