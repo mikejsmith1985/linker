@@ -105,13 +105,14 @@ func (c *CompanyCareers) greenhouse(ctx context.Context, token, display string) 
 	}
 	openings := make([]RawOpening, 0, len(parsed.Jobs))
 	for _, job := range parsed.Jobs {
+		text := truncate(htmlToText(job.Content), 4000)
 		openings = append(openings, RawOpening{
 			Title:            job.Title,
 			Employer:         display,
 			Location:         job.Location.Name,
-			Description:      truncate(htmlToText(job.Content), 4000),
+			Description:      text,
 			OriginalURL:      job.AbsoluteURL,
-			WorkLocationType: inferWorkLocation(job.Title, job.Location.Name),
+			WorkLocationType: inferWorkLocation(job.Title, job.Location.Name, text),
 			SourceName:       c.Name(),
 		})
 	}
@@ -140,7 +141,7 @@ func (c *CompanyCareers) lever(ctx context.Context, token, display string) ([]Ra
 	}
 	openings := make([]RawOpening, 0, len(postings))
 	for _, posting := range postings {
-		workLocation := inferWorkLocation(posting.WorkplaceType, posting.Categories.Location)
+		workLocation := inferWorkLocation(posting.WorkplaceType, posting.Categories.Location, posting.DescriptionPlain)
 		openings = append(openings, RawOpening{
 			Title:            posting.Text,
 			Employer:         display,
