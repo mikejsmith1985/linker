@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Passed roles are now **hidden from the Matches page by default**, with a
+  "Show N passed" toggle to bring them back — the list stays focused on live
+  prospects.
 - The **Matches page now accumulates results across all searches** (de-duplicated
   to each opening's most recent match, ranked by score) instead of showing only
   the latest search. A later search that finds nothing — or a narrow company/URL

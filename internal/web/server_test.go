@@ -609,3 +609,28 @@ func TestAssistantMessageRejectsEmpty(t *testing.T) {
 		t.Errorf("status = %d, want 400 for empty message", rr.Code)
 	}
 }
+
+func TestMatchesHidesPassedByDefaultWithToggle(t *testing.T) {
+	st := &webFakeStore{
+		qualifying: []store.MatchWithOpening{
+			{MatchResult: store.MatchResult{Score: 90, IsQualifying: true}, Opening: store.JobOpening{Title: "Keep Me", ReviewStatus: store.ReviewNew}},
+			{MatchResult: store.MatchResult{Score: 80, IsQualifying: true}, Opening: store.JobOpening{Title: "Passed Role", ReviewStatus: store.ReviewPassed}},
+		},
+	}
+	// Default: passed hidden, toggle offered.
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/matches", nil))
+	body := rr.Body.String()
+	if strings.Contains(body, "Passed Role") {
+		t.Error("passed role should be hidden by default")
+	}
+	if !strings.Contains(body, "Keep Me") || !strings.Contains(body, "Show 1 passed") {
+		t.Error("expected the kept role and a 'Show 1 passed' toggle")
+	}
+	// With ?passed=1: passed role shown.
+	rr2 := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr2, httptest.NewRequest(http.MethodGet, "/matches?passed=1", nil))
+	if !strings.Contains(rr2.Body.String(), "Passed Role") {
+		t.Error("passed role should appear with ?passed=1")
+	}
+}
