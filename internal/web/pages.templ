@@ -302,8 +302,22 @@ templ matchCard(m store.MatchWithOpening) {
 templ NoMatches() {
 	@Layout("linker — matches") {
 		<section class="card empty">
-			<h2>No searches yet</h2>
-			<p class="hint">Run a search from the <a href="/">home page</a> and your matches will appear here — this page always shows your latest results, so you won't lose them.</p>
+			<h2>No matches yet</h2>
+			<p class="hint">Run a search from the <a href="/">home page</a> and your matches will appear here. They accumulate across searches, so a later empty search never hides earlier results.</p>
 		</section>
+	}
+}
+
+// Matches shows every qualifying opening ever found, ranked by score. This is the
+// persistent, accumulated view — results never disappear because of a newer run.
+templ Matches(matches []store.MatchWithOpening) {
+	@Layout("linker — matches") {
+		<section class="card">
+			<h2>Your matches</h2>
+			<p class="hint">{ matchCountText(len(matches)) } across all your searches, ranked by score. Passed roles are dimmed; interested ones highlighted.</p>
+		</section>
+		for _, m := range matches {
+			@matchCard(m)
+		}
 	}
 }

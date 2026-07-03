@@ -67,6 +67,9 @@ func (f *fakeStore) FailRunningSearches(context.Context) error                  
 func (f *fakeStore) ListRecentSearches(context.Context, int) ([]store.SearchSummary, error) {
 	return nil, nil
 }
+func (f *fakeStore) ListAllQualifying(context.Context) ([]store.MatchWithOpening, error) {
+	return nil, nil
+}
 func (f *fakeStore) LatestCompletedSearchID(context.Context) (int64, error) {
 	return 0, store.ErrNotFound
 }

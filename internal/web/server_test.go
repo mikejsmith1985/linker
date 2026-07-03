@@ -69,6 +69,9 @@ func (f *webFakeStore) FailRunningSearches(context.Context) error { return nil }
 func (f *webFakeStore) ListRecentSearches(context.Context, int) ([]store.SearchSummary, error) {
 	return []store.SearchSummary{{Search: store.Search{ID: 7, Status: store.SearchCompleted}, QualifyingCount: 2}}, nil
 }
+func (f *webFakeStore) ListAllQualifying(context.Context) ([]store.MatchWithOpening, error) {
+	return f.qualifying, nil
+}
 func (f *webFakeStore) LatestCompletedSearchID(context.Context) (int64, error) {
 	if f.latestSearchID == 0 {
 		return 0, store.ErrNotFound
@@ -528,7 +531,7 @@ func TestMatchesEmptyStateWhenNoSearch(t *testing.T) {
 	st := &webFakeStore{} // latestSearchID 0 → ErrNotFound
 	rr := httptest.NewRecorder()
 	newTestServer(st).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/matches", nil))
-	if !strings.Contains(rr.Body.String(), "No searches yet") {
+	if !strings.Contains(rr.Body.String(), "No matches yet") {
 		t.Error("expected empty state on /matches with no searches")
 	}
 }

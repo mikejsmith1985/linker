@@ -321,17 +321,19 @@ func (s *Server) handleAssistantMessage(w http.ResponseWriter, r *http.Request) 
 
 // handleMatches renders the latest completed search's results, so the user can
 // always get back to their list without a saved URL.
+// handleMatches shows every qualifying opening ever found (de-duplicated, ranked),
+// so a later empty search never hides earlier results.
 func (s *Server) handleMatches(w http.ResponseWriter, r *http.Request) {
-	id, err := s.store.LatestCompletedSearchID(r.Context())
-	if errors.Is(err, store.ErrNotFound) {
+	matches, err := s.store.ListAllQualifying(r.Context())
+	if err != nil {
+		s.fail(w, "load matches", err)
+		return
+	}
+	if len(matches) == 0 {
 		s.render(w, r, NoMatches())
 		return
 	}
-	if err != nil {
-		s.fail(w, "load latest search", err)
-		return
-	}
-	s.renderSearch(w, r, id)
+	s.render(w, r, Matches(matches))
 }
 
 // handleReview persists a Pass/Interested/new mark on the opening and returns the
