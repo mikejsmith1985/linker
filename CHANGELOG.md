@@ -117,6 +117,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     opt-in and `playwright install` step.
 
 ### Fixed
+- A JSearch role flagged not-remote (`job_is_remote=false`) with no recognized
+  remote/onsite keyword in its text is now treated as **onsite** rather than
+  "unknown", so a remote-only preference correctly filters it out (an "In-person"
+  role "in our Winchester, VA office" no longer slips through). Added in-person /
+  must-relocate detectors.
 - Work-location is now inferred from the posting text (title + description), not
   just a source's remote flag. JSearch marks a role remote if it has any remote
   days, so hybrid/onsite roles (e.g. "Hybrid 3 days on site") slipped past a

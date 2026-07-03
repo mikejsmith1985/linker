@@ -128,11 +128,16 @@ func (j *JSearch) searchOne(ctx context.Context, term string) ([]RawOpening, err
 			location = job.JobLocation // e.g. "Anywhere" for remote roles
 		}
 		// Prefer the text ("Hybrid 3 days on site") over JSearch's job_is_remote
-		// flag, which marks a role remote if it has any remote days; fall back to
-		// the flag only when the text gives no signal.
+		// flag, which marks a role remote if it has any remote days. When the text
+		// is silent, trust the flag: remote if set, otherwise onsite — a not-remote
+		// role must not be left "unknown", or it slips past a remote-only filter.
 		workLocation := inferWorkLocation(job.JobTitle, job.JobDescription, location)
-		if workLocation == "unknown" && job.JobIsRemote {
-			workLocation = "remote"
+		if workLocation == "unknown" {
+			if job.JobIsRemote {
+				workLocation = "remote"
+			} else {
+				workLocation = "onsite"
+			}
 		}
 		salaryMin, salaryMax := annualSalary(job.JobMinSalary, job.JobMaxSalary, job.JobSalaryPeriod)
 		openings = append(openings, RawOpening{
