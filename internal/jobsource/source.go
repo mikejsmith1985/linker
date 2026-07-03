@@ -54,6 +54,7 @@ type RawOpening struct {
 	Location         string
 	Description      string
 	OriginalURL      string
+	EmployerWebsite  string // the employer's own site, when known (for direct applies)
 	WorkLocationType string // onsite | hybrid | remote | unknown
 	SalaryMin        int    // 0 = unstated
 	SalaryMax        int    // 0 = unstated

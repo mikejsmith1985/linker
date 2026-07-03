@@ -83,6 +83,7 @@ func toOpening(raw RawOpening, key string) store.JobOpening {
 		Description:      cleanUTF8(raw.Description),
 		SourceNames:      []string{raw.SourceName},
 		OriginalURL:      cleanUTF8(raw.OriginalURL),
+		EmployerWebsite:  cleanUTF8(raw.EmployerWebsite),
 	}
 }
 

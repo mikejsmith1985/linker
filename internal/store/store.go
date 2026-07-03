@@ -267,16 +267,17 @@ func (s *PG) UpsertOpening(ctx context.Context, o JobOpening) (int64, error) {
 	err = s.db.QueryRow(ctx,
 		`INSERT INTO job_openings
 		   (canonical_key, title, employer, location, work_location_type, salary_min, salary_max,
-		    description, source_names, original_url)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		    description, source_names, original_url, employer_website)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 		 ON CONFLICT (canonical_key) DO UPDATE SET
 		   title = EXCLUDED.title, employer = EXCLUDED.employer, location = EXCLUDED.location,
 		   work_location_type = EXCLUDED.work_location_type, salary_min = EXCLUDED.salary_min,
 		   salary_max = EXCLUDED.salary_max, description = EXCLUDED.description,
-		   source_names = EXCLUDED.source_names, original_url = EXCLUDED.original_url
+		   source_names = EXCLUDED.source_names, original_url = EXCLUDED.original_url,
+		   employer_website = EXCLUDED.employer_website
 		 RETURNING id`,
 		o.CanonicalKey, o.Title, o.Employer, o.Location, string(defaultWorkLocation(o.WorkLocationType)),
-		o.SalaryMin, o.SalaryMax, o.Description, string(names), o.OriginalURL,
+		o.SalaryMin, o.SalaryMax, o.Description, string(names), o.OriginalURL, o.EmployerWebsite,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("upsert opening: %w", err)
@@ -346,7 +347,7 @@ func (s *PG) ListQualifying(ctx context.Context, searchID int64) ([]MatchWithOpe
 		`SELECT m.id, m.search_id, m.job_opening_id, m.score, m.score_explanation,
 		        m.gate_penalties, m.is_qualifying, m.rank,
 		        o.id, o.canonical_key, o.title, o.employer, o.location, o.work_location_type,
-		        o.salary_min, o.salary_max, o.description, o.source_names, o.original_url, o.review_status, o.review_reason, o.discovered_at
+		        o.salary_min, o.salary_max, o.description, o.source_names, o.original_url, o.employer_website, o.review_status, o.review_reason, o.discovered_at
 		   FROM match_results m JOIN job_openings o ON o.id = m.job_opening_id
 		  WHERE m.search_id = $1 AND m.is_qualifying = TRUE
 		  ORDER BY m.rank ASC`, searchID)
@@ -375,7 +376,7 @@ func (s *PG) GetMatchWithOpening(ctx context.Context, matchID int64) (MatchWithO
 		`SELECT m.id, m.search_id, m.job_opening_id, m.score, m.score_explanation,
 		        m.gate_penalties, m.is_qualifying, m.rank,
 		        o.id, o.canonical_key, o.title, o.employer, o.location, o.work_location_type,
-		        o.salary_min, o.salary_max, o.description, o.source_names, o.original_url, o.review_status, o.review_reason, o.discovered_at
+		        o.salary_min, o.salary_max, o.description, o.source_names, o.original_url, o.employer_website, o.review_status, o.review_reason, o.discovered_at
 		   FROM match_results m JOIN job_openings o ON o.id = m.job_opening_id
 		  WHERE m.id = $1`, matchID)
 	mw, err := scanMatchWithOpening(row)
@@ -402,7 +403,8 @@ func scanMatchWithOpening(row scanDest) (MatchWithOpening, error) {
 		&penalties, &mw.IsQualifying, &mw.Rank,
 		&mw.Opening.ID, &mw.Opening.CanonicalKey, &mw.Opening.Title, &mw.Opening.Employer,
 		&mw.Opening.Location, &loc, &mw.Opening.SalaryMin, &mw.Opening.SalaryMax,
-		&mw.Opening.Description, &names, &mw.Opening.OriginalURL, &mw.Opening.ReviewStatus, &mw.Opening.ReviewReason, &mw.Opening.DiscoveredAt,
+		&mw.Opening.Description, &names, &mw.Opening.OriginalURL, &mw.Opening.EmployerWebsite,
+		&mw.Opening.ReviewStatus, &mw.Opening.ReviewReason, &mw.Opening.DiscoveredAt,
 	)
 	if err != nil {
 		return MatchWithOpening{}, err
