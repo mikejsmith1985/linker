@@ -56,6 +56,9 @@ type Store interface {
 	UpdateDocumentContent(ctx context.Context, id int64, content string) error
 
 	UpsertSelection(ctx context.Context, matchID int64, opened bool) error
+
+	AppendChatMessage(ctx context.Context, role, content string) error
+	ListChatMessages(ctx context.Context, limit int) ([]ChatMessage, error)
 }
 
 // PG is the Postgres-backed Store implementation.
@@ -489,6 +492,39 @@ func (s *PG) UpsertSelection(ctx context.Context, matchID int64, opened bool) er
 		return fmt.Errorf("upsert selection: %w", err)
 	}
 	return nil
+}
+
+// ── Chat ──
+
+// AppendChatMessage stores one assistant-conversation turn.
+func (s *PG) AppendChatMessage(ctx context.Context, role, content string) error {
+	_, err := s.db.Exec(ctx,
+		`INSERT INTO chat_messages (role, content) VALUES ($1, $2)`, role, content)
+	if err != nil {
+		return fmt.Errorf("append chat message: %w", err)
+	}
+	return nil
+}
+
+// ListChatMessages returns the most recent messages in chronological order.
+func (s *PG) ListChatMessages(ctx context.Context, limit int) ([]ChatMessage, error) {
+	rows, err := s.db.Query(ctx,
+		`SELECT id, role, content, created_at FROM (
+		   SELECT id, role, content, created_at FROM chat_messages ORDER BY id DESC LIMIT $1
+		 ) recent ORDER BY id ASC`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list chat messages: %w", err)
+	}
+	defer rows.Close()
+	var out []ChatMessage
+	for rows.Next() {
+		var m ChatMessage
+		if err := rows.Scan(&m.ID, &m.Role, &m.Content, &m.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan chat message: %w", err)
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }
 
 // ── helpers ──

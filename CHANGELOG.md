@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **In-app assistant** (`/assistant`): a conversational helper that reads your
+  current preferences and latest matches and, in plain English, answers questions
+  ("what's my top match?") and takes actions — updating preferences (work location,
+  strict, salary, location, new-roles-only, target roles) and starting searches
+  ("only remote AI roles, then search"). Conversation is persisted.
 - The employer's own website is captured from JSearch and shown as a direct
   "🏢 Company website" link on the job's How-to-apply section when available.
 - **Asynchronous searches**: a search now runs in the background and returns

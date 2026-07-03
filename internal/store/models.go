@@ -136,6 +136,14 @@ type GeneratedDocument struct {
 	GeneratedAt      time.Time
 }
 
+// ChatMessage is one turn in the in-app assistant conversation.
+type ChatMessage struct {
+	ID        int64
+	Role      string // user | assistant
+	Content   string
+	CreatedAt time.Time
+}
+
 // Selection records the user's decision to pursue an opening and that its
 // posting was opened for manual submission. The system never auto-submits.
 type Selection struct {

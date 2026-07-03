@@ -2,6 +2,37 @@ package web
 
 import "github.com/mikejsmith1985/linker/internal/store"
 
+// AssistantPage renders the conversational assistant with its chat history.
+templ AssistantPage(messages []store.ChatMessage) {
+	@Layout("linker — assistant") {
+		<section class="card">
+			<h2>Assistant</h2>
+			<p class="hint">Refine your search in plain English — e.g. "only remote AI roles", "add Agentic AI Engineer and search", "what's my top match?", "turn on new-roles-only".</p>
+			<div id="chat-thread" class="chat">
+				@ChatThread(messages)
+			</div>
+			<form hx-post="/assistant/message" hx-target="#chat-thread" hx-swap="innerHTML" hx-on:htmx:after-request="this.reset()" class="chat-form">
+				<textarea name="message" rows="2" placeholder="Ask or tell me what to change…"></textarea>
+				<button type="submit" class="primary">Send</button>
+			</form>
+		</section>
+	}
+}
+
+// ChatThread renders the conversation, swapped in after each message.
+templ ChatThread(messages []store.ChatMessage) {
+	if len(messages) == 0 {
+		<p class="hint">No messages yet — tell me what you're looking for.</p>
+	} else {
+		for _, m := range messages {
+			<div class={ "bubble", bubbleClass(m.Role) }>
+				<span class="bubble-role">{ m.Role }</span>
+				<div class="bubble-body">{ m.Content }</div>
+			</div>
+		}
+	}
+}
+
 // SearchStarted is the fragment shown after a search is kicked off — the search
 // runs in the background, so the page never navigates and typed input is kept.
 templ SearchStarted(searchID int64, label string) {
