@@ -126,6 +126,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     opt-in and `playwright install` step.
 
 ### Fixed
+- Company-feed (Greenhouse/Lever) work-location is now inferred from the job
+  description text as well as the title/location, so strict work-location gating
+  is consistent across the company-targeting search and the other sources.
 - A JSearch role flagged not-remote (`job_is_remote=false`) with no recognized
   remote/onsite keyword in its text is now treated as **onsite** rather than
   "unknown", so a remote-only preference correctly filters it out (an "In-person"
