@@ -41,6 +41,7 @@ type Store interface {
 	FinishSearch(ctx context.Context, id int64, status SearchStatus, health map[string]string) error
 	GetSearch(ctx context.Context, id int64) (Search, error)
 	LatestCompletedSearchID(ctx context.Context) (int64, error)
+	ListRecentSearches(ctx context.Context, limit int) ([]SearchSummary, error)
 	FailRunningSearches(ctx context.Context) error
 
 	UpsertOpening(ctx context.Context, o JobOpening) (int64, error)
@@ -224,6 +225,32 @@ func (s *PG) LatestCompletedSearchID(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("latest search: %w", err)
 	}
 	return id, nil
+}
+
+// ListRecentSearches returns the most recent searches with their qualifying-match
+// counts, newest first, for the search-activity feedback list.
+func (s *PG) ListRecentSearches(ctx context.Context, limit int) ([]SearchSummary, error) {
+	rows, err := s.db.Query(ctx,
+		`SELECT s.id, s.resume_id, s.status, s.started_at, s.finished_at,
+		        COALESCE(SUM(CASE WHEN m.is_qualifying THEN 1 ELSE 0 END), 0) AS qualifying
+		   FROM searches s
+		   LEFT JOIN match_results m ON m.search_id = s.id
+		  GROUP BY s.id
+		  ORDER BY s.id DESC
+		  LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list recent searches: %w", err)
+	}
+	defer rows.Close()
+	var out []SearchSummary
+	for rows.Next() {
+		var sum SearchSummary
+		if err := rows.Scan(&sum.ID, &sum.ResumeID, &sum.Status, &sum.StartedAt, &sum.FinishedAt, &sum.QualifyingCount); err != nil {
+			return nil, fmt.Errorf("scan recent search: %w", err)
+		}
+		out = append(out, sum)
+	}
+	return out, rows.Err()
 }
 
 // FailRunningSearches marks any search left in the running state as failed. It is

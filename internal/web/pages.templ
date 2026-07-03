@@ -32,20 +32,43 @@ templ ChatThread(messages []store.ChatMessage) {
 	}
 }
 
-// SearchStarted is the fragment shown after a search is kicked off — the search
-// runs in the background, so the page never navigates and typed input is kept.
-templ SearchStarted(searchID int64, label string) {
-	<div class="started">
-		🔄 <strong>{ label }</strong> started in the background.
-		<a href={ templ.SafeURL(searchPath(searchID)) }>View progress →</a>
-		&nbsp;· it will appear on <a href="/matches">Matches</a> when done. You can start another search now.
-	</div>
+// RecentSearches is the search-activity feed. While any search is running it
+// auto-refreshes so the user sees it progress from "running" to "completed in Ns
+// · N matches" — the feedback that a search actually executed.
+templ RecentSearches(summaries []store.SearchSummary) {
+	if anyRunning(summaries) {
+		<div id="recent-searches" class="searches" hx-get="/searches" hx-trigger="every 3s" hx-swap="outerHTML">
+			@searchList(summaries)
+		</div>
+	} else {
+		<div id="recent-searches" class="searches">
+			@searchList(summaries)
+		</div>
+	}
+}
+
+templ searchList(summaries []store.SearchSummary) {
+	if len(summaries) == 0 {
+		<p class="hint">No searches yet — run one above.</p>
+	} else {
+		<ul class="search-activity">
+			for _, sum := range summaries {
+				<li>
+					<span class={ "badge", searchStatusClass(sum.Status) }>{ string(sum.Status) }</span>
+					<span>Search #{ intText(sum.ID) }</span>
+					<span class="hint">{ searchTiming(sum) }</span>
+					if string(sum.Status) == "completed" {
+						<a href={ templ.SafeURL(searchPath(sum.ID)) }>{ matchCountText(sum.QualifyingCount) } →</a>
+					}
+				</li>
+			}
+		</ul>
+	}
 }
 
 // Home shows the active resume status, a search trigger, and a preferences link.
 templ Home(resume *store.Resume, hasResume bool) {
 	@Layout("linker — matches") {
-		<div id="search-status"></div>
 		<section class="card">
 			<h2>Your resume</h2>
 			if hasResume {
@@ -61,7 +84,7 @@ templ Home(resume *store.Resume, hasResume bool) {
 		<section class="card">
 			<h2>Find matching jobs</h2>
 			<p class="hint">Searches your enabled job sources, scores each opening 1–100 against your resume and preferences, and shows only strong matches (70+).</p>
-			<form hx-post="/search" hx-target="#search-status" hx-swap="innerHTML" class="actions">
+			<form hx-post="/search" hx-target="#recent-searches" hx-swap="outerHTML" class="actions">
 				<button type="submit" class="primary" disabled?={ !hasResume }>Run search</button>
 			</form>
 			if !hasResume {
@@ -71,7 +94,7 @@ templ Home(resume *store.Resume, hasResume bool) {
 		<section class="card">
 			<h2>Or score specific postings</h2>
 			<p class="hint">Paste one or more job posting URLs (one per line). Each is fetched, scored, and — if it reaches 70 — given tailored documents, just like a discovered match.</p>
-			<form hx-post="/search/urls" hx-target="#search-status" hx-swap="innerHTML">
+			<form hx-post="/search/urls" hx-target="#recent-searches" hx-swap="outerHTML">
 				<textarea name="urls" rows="4" placeholder="https://…/job/123&#10;https://…/careers/456"></textarea>
 				<div class="actions">
 					<button type="submit" class="secondary" disabled?={ !hasResume }>Score pasted URLs</button>
@@ -81,12 +104,19 @@ templ Home(resume *store.Resume, hasResume bool) {
 		<section class="card">
 			<h2>Or target specific companies</h2>
 			<p class="hint">Enter company names (one per line) to pull openings straight from their careers feed and score them against your resume. Works for employers on Greenhouse or Lever (much of tech); some large enterprises use other systems and won't resolve.</p>
-			<form hx-post="/search/companies" hx-target="#search-status" hx-swap="innerHTML">
+			<form hx-post="/search/companies" hx-target="#recent-searches" hx-swap="outerHTML">
 				<textarea name="companies" rows="3" placeholder="Stripe&#10;Databricks&#10;Airbnb"></textarea>
 				<div class="actions">
 					<button type="submit" class="secondary" disabled?={ !hasResume }>Search these companies</button>
 				</div>
 			</form>
+		</section>
+		<section class="card">
+			<h2>Recent searches</h2>
+			<p class="hint">Every search runs in the background — watch its status, run time, and match count here.</p>
+			<div hx-get="/searches" hx-trigger="load" hx-swap="outerHTML">
+				<p class="hint">Loading…</p>
+			</div>
 		</section>
 	}
 }

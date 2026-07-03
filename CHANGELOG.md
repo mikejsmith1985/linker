@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Recent searches** activity list on the home page: every search (discovery,
+  URL, or company) now shows up with its status, run time, and qualifying-match
+  count, auto-refreshing from "running" to "completed in Ns · N matches". This
+  restores the feedback that async searches removed — you can see a search
+  executed, is still running, or finished with zero matches.
 - The assistant now lives in a **persistent side ribbon** visible on every page,
   so you can chat with it while viewing your matches. The layout is wider
   (two-column, uses the full screen) and collapses to a single column on narrow

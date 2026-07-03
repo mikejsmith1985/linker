@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mikejsmith1985/linker/internal/orchestrator"
 	"github.com/mikejsmith1985/linker/internal/resume"
@@ -82,6 +83,7 @@ func (s *Server) Routes() http.Handler {
 	r.Post("/search/urls", s.handleSearchURLs)
 	r.Post("/search/companies", s.handleSearchCompanies)
 	r.Get("/search/{id}", s.handleSearchResults)
+	r.Get("/searches", s.handleSearches)
 	r.Get("/matches", s.handleMatches)
 	r.Get("/assistant/panel", s.handleAssistantPanel)
 	r.Post("/assistant/message", s.handleAssistantMessage)
@@ -183,7 +185,7 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
-	searchID, err := s.actions.StartSearch(r.Context())
+	_, err := s.actions.StartSearch(r.Context())
 	if errors.Is(err, orchestrator.ErrNoResume) {
 		http.Error(w, "upload a resume before searching", http.StatusBadRequest)
 		return
@@ -192,7 +194,22 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, "start search", err)
 		return
 	}
-	s.render(w, r, SearchStarted(searchID, "Discovery search"))
+	s.renderRecent(w, r)
+}
+
+// renderRecent renders the recent-searches activity list (the search-feedback UI).
+func (s *Server) renderRecent(w http.ResponseWriter, r *http.Request) {
+	summaries, err := s.store.ListRecentSearches(r.Context(), 8)
+	if err != nil {
+		s.fail(w, "load searches", err)
+		return
+	}
+	s.render(w, r, RecentSearches(summaries))
+}
+
+// handleSearches serves the recent-searches list, polled while a search runs.
+func (s *Server) handleSearches(w http.ResponseWriter, r *http.Request) {
+	s.renderRecent(w, r)
 }
 
 // handleSearchURLs scores one or more user-pasted posting URLs (FR-021).
@@ -206,7 +223,7 @@ func (s *Server) handleSearchURLs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "paste at least one posting URL", http.StatusBadRequest)
 		return
 	}
-	searchID, err := s.actions.StartSearchURLs(r.Context(), urls)
+	_, err := s.actions.StartSearchURLs(r.Context(), urls)
 	if errors.Is(err, orchestrator.ErrNoResume) {
 		http.Error(w, "upload a resume before searching", http.StatusBadRequest)
 		return
@@ -215,7 +232,7 @@ func (s *Server) handleSearchURLs(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, "start url search", err)
 		return
 	}
-	s.render(w, r, SearchStarted(searchID, "Pasted-URL search"))
+	s.renderRecent(w, r)
 }
 
 // handleSearchCompanies scores openings pulled from named companies' ATS feeds.
@@ -229,7 +246,7 @@ func (s *Server) handleSearchCompanies(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "enter at least one company name", http.StatusBadRequest)
 		return
 	}
-	searchID, err := s.actions.StartSearchCompanies(r.Context(), companies)
+	_, err := s.actions.StartSearchCompanies(r.Context(), companies)
 	if errors.Is(err, orchestrator.ErrNoResume) {
 		http.Error(w, "upload a resume before searching", http.StatusBadRequest)
 		return
@@ -238,7 +255,7 @@ func (s *Server) handleSearchCompanies(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, "start company search", err)
 		return
 	}
-	s.render(w, r, SearchStarted(searchID, "Company search"))
+	s.renderRecent(w, r)
 }
 
 func (s *Server) handleSearchResults(w http.ResponseWriter, r *http.Request) {
@@ -625,6 +642,66 @@ func jobPath(matchID int64) string { return fmt.Sprintf("/job/%d", matchID) }
 
 func searchPath(searchID int64) string { return fmt.Sprintf("/search/%d", searchID) }
 
+func intText(id int64) string { return strconv.FormatInt(id, 10) }
+
+// anyRunning reports whether any listed search is still in progress (drives the
+// auto-refresh poll on the recent-searches list).
+func anyRunning(summaries []store.SearchSummary) bool {
+	for _, sum := range summaries {
+		if sum.Status == store.SearchRunning {
+			return true
+		}
+	}
+	return false
+}
+
+func searchStatusClass(status store.SearchStatus) string {
+	switch status {
+	case store.SearchCompleted:
+		return "ok-badge"
+	case store.SearchFailed:
+		return "fail-badge"
+	default:
+		return "run-badge"
+	}
+}
+
+// searchTiming describes how long a search took (or has been running) and how
+// long ago it finished, so the user sees that it actually executed.
+func searchTiming(sum store.SearchSummary) string {
+	switch sum.Status {
+	case store.SearchRunning:
+		return "running for " + humanDuration(time.Since(sum.StartedAt))
+	case store.SearchCompleted:
+		if sum.FinishedAt != nil {
+			return fmt.Sprintf("completed in %s · %s ago",
+				humanDuration(sum.FinishedAt.Sub(sum.StartedAt)), humanDuration(time.Since(*sum.FinishedAt)))
+		}
+		return "completed"
+	case store.SearchFailed:
+		return "failed"
+	}
+	return string(sum.Status)
+}
+
+func humanDuration(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	default:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	}
+}
+
+func matchCountText(count int) string {
+	if count == 1 {
+		return "1 match"
+	}
+	return fmt.Sprintf("%d matches", count)
+}
+
 func docSavePath(matchID int64, docType store.DocType) string {
 	return fmt.Sprintf("/job/%d/documents/%s", matchID, docType)
 }
@@ -788,6 +865,11 @@ button:disabled { opacity:.5; cursor:not-allowed; }
 .bubble-body { white-space:pre-wrap; }
 .chat-form { display:flex; gap:.6rem; align-items:flex-end; }
 .chat-form textarea { flex:1; }
+.search-activity { list-style:none; padding:0; margin:.4rem 0 0; display:flex; flex-direction:column; gap:.5rem; }
+.search-activity li { display:flex; align-items:center; gap:.7rem; flex-wrap:wrap; }
+.run-badge { background:rgba(59,130,246,.18); color:#8ab4ff; border:1px solid var(--accent); }
+.ok-badge { background:rgba(52,199,89,.15); color:#5fd67e; border:1px solid #2e7d43; }
+.fail-badge { background:rgba(255,99,99,.15); color:#ff8a8a; border:1px solid #7d2e2e; }
 .btn { display:inline-block; text-decoration:none; border-radius:9px; padding:.6rem 1rem; font-size:1rem; }
 a.primary.btn { color:#fff; }
 a.secondary.btn { color:var(--ink); }

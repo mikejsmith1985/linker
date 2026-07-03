@@ -136,6 +136,13 @@ type GeneratedDocument struct {
 	GeneratedAt      time.Time
 }
 
+// SearchSummary is a search plus its qualifying-match count, for the recent
+// searches feedback list.
+type SearchSummary struct {
+	Search
+	QualifyingCount int
+}
+
 // ChatMessage is one turn in the in-app assistant conversation.
 type ChatMessage struct {
 	ID        int64
