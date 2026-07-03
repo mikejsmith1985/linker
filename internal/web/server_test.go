@@ -550,3 +550,14 @@ func multipartResume(t *testing.T, filename, content string) (*bytes.Buffer, str
 	mw.Close()
 	return &buf, mw.FormDataContentType()
 }
+
+func TestCareersAndLinkedInSearchURLs(t *testing.T) {
+	c := careersSearchURL("KORE1 Technologies", "Scrum Master")
+	if !strings.HasPrefix(c, "https://www.google.com/search?q=") || !strings.Contains(c, "careers") {
+		t.Errorf("careersSearchURL = %q", c)
+	}
+	l := linkedInSearchURL("KORE1 Technologies", "Scrum Master")
+	if !strings.HasPrefix(l, "https://www.linkedin.com/jobs/search/?keywords=") {
+		t.Errorf("linkedInSearchURL = %q", l)
+	}
+}

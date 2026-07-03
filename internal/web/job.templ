@@ -25,6 +25,15 @@ templ Job(match store.MatchWithOpening, tailored store.GeneratedDocument, cover 
 			</div>
 			<p class="hint">Opening the posting takes you to the original listing to submit your tailored resume and cover letter yourself — the app never submits anything for you.</p>
 		</section>
+		<section class="card">
+			<h2>How to apply</h2>
+			<p class="hint">Aggregator "Quick Apply" (ZipRecruiter/Indeed) is frequently filtered out by employer applicant-tracking systems. For a <strong>direct employer</strong>, applying on their own careers page gets you seen; for a <strong>staffing/recruiting firm</strong>, applying through their posting is the right path.</p>
+			<div class="actions">
+				<a class="primary btn" href={ templ.SafeURL(careersSearchURL(match.Opening.Employer, match.Opening.Title)) } target="_blank" rel="noopener">🔎 Find on the company's careers site</a>
+				<a class="secondary btn" href={ templ.SafeURL(linkedInSearchURL(match.Opening.Employer, match.Opening.Title)) } target="_blank" rel="noopener">Search on LinkedIn</a>
+				<a class="secondary btn" href={ templ.SafeURL(match.Opening.OriginalURL) } target="_blank" rel="noopener">Original listing ↗</a>
+			</div>
+		</section>
 		@documentCard(match.ID, tailored)
 		@documentCard(match.ID, cover)
 	}
