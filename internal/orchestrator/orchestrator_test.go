@@ -64,6 +64,9 @@ func (f *fakeStore) FindScoredOpening(_ context.Context, key string) (store.Matc
 }
 func (f *fakeStore) SetOpeningReviewStatus(context.Context, int64, string, string) error { return nil }
 func (f *fakeStore) FailRunningSearches(context.Context) error                           { return nil }
+func (f *fakeStore) ListRecentSearches(context.Context, int) ([]store.SearchSummary, error) {
+	return nil, nil
+}
 func (f *fakeStore) LatestCompletedSearchID(context.Context) (int64, error) {
 	return 0, store.ErrNotFound
 }

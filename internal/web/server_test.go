@@ -66,6 +66,9 @@ func (f *webFakeStore) SetOpeningReviewStatus(_ context.Context, _ int64, status
 	return nil
 }
 func (f *webFakeStore) FailRunningSearches(context.Context) error { return nil }
+func (f *webFakeStore) ListRecentSearches(context.Context, int) ([]store.SearchSummary, error) {
+	return []store.SearchSummary{{Search: store.Search{ID: 7, Status: store.SearchCompleted}, QualifyingCount: 2}}, nil
+}
 func (f *webFakeStore) LatestCompletedSearchID(context.Context) (int64, error) {
 	if f.latestSearchID == 0 {
 		return 0, store.ErrNotFound
@@ -344,8 +347,8 @@ func TestSearchURLsParsesAndForwardsURLs(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (started fragment)", rr.Code)
 	}
-	if !strings.Contains(rr.Body.String(), "/search/12") {
-		t.Error("started fragment should link to /search/12")
+	if !strings.Contains(rr.Body.String(), "Search #7") {
+		t.Error("should render the recent-searches activity list")
 	}
 	if len(actions.gotURLs) != 3 {
 		t.Errorf("parsed %d urls, want 3: %v", len(actions.gotURLs), actions.gotURLs)
@@ -364,8 +367,8 @@ func TestSearchCompaniesParsesMultiWordNames(t *testing.T) {
 	rr := httptest.NewRecorder()
 	server.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "/search/21") {
-		t.Fatalf("status=%d, want 200 started fragment linking /search/21", rr.Code)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "Search #7") {
+		t.Fatalf("status=%d, want 200 with recent-searches list", rr.Code)
 	}
 	want := []string{"Stripe", "Match Group", "Databricks"}
 	if len(actions.gotCompanies) != 3 {
