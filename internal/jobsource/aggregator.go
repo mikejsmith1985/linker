@@ -129,17 +129,23 @@ func (a *Adzuna) searchOne(ctx context.Context, term string, query Query) ([]Raw
 	return openings, nil
 }
 
-// inferWorkLocation guesses onsite/hybrid/remote from free text, since Adzuna
-// does not label it directly. Unknown when no signal is present.
+// inferWorkLocation guesses onsite/hybrid/remote from free text. It is layered so
+// clear signals win: hybrid first (a hybrid posting mentions both remote and on
+// site), then an explicit fully-remote marker, then on-site markers, then a plain
+// "remote" mention. Unknown when no signal is present.
 func inferWorkLocation(parts ...string) string {
 	blob := strings.ToLower(strings.Join(parts, " "))
 	switch {
 	case strings.Contains(blob, "hybrid"):
 		return "hybrid"
-	case strings.Contains(blob, "remote"), strings.Contains(blob, "work from home"):
+	case anyContains(blob, "fully remote", "100% remote", "fully-remote", "remote-first",
+		"remote position", "remote role", "work from home", "work from anywhere"):
 		return "remote"
-	case strings.Contains(blob, "on-site"), strings.Contains(blob, "onsite"):
+	case anyContains(blob, "on-site", "onsite", "on site", "in office", "in-office",
+		"days on site", "days in the office", "days per week in", "on premise", "on-premise"):
 		return "onsite"
+	case strings.Contains(blob, "remote"):
+		return "remote"
 	default:
 		return "unknown"
 	}

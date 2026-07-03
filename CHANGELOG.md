@@ -107,6 +107,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     opt-in and `playwright install` step.
 
 ### Fixed
+- Work-location is now inferred from the posting text (title + description), not
+  just a source's remote flag. JSearch marks a role remote if it has any remote
+  days, so hybrid/onsite roles (e.g. "Hybrid 3 days on site") slipped past a
+  remote-only preference; the text now wins, so the work-location gate correctly
+  drops them.
 - Job text is truncated on UTF-8 rune boundaries and sanitized before storage, so
   a multi-byte character (em-dash, bullet) split by truncation no longer produces
   an "invalid byte sequence for encoding UTF8" error that failed the whole search.

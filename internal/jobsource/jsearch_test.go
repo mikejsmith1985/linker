@@ -95,3 +95,26 @@ func TestJSearchNonOKStatusIsError(t *testing.T) {
 		t.Error("expected error on non-200 status")
 	}
 }
+
+func TestJSearchDetectsHybridFromTextOverRemoteFlag(t *testing.T) {
+	// JSearch marks this remote (2 days remote), but the text says Hybrid — the
+	// text must win so a remote-only preference correctly gates it.
+	body := `{"data":{"jobs":[
+	  {"job_title":"Senior Scrum Master","employer_name":"Acme","job_apply_link":"https://x",
+	   "job_description":"Location: McLean, VA (Hybrid 3 days on site 2 days remote per week)",
+	   "job_is_remote":true,"job_city":"McLean","job_state":"VA","job_country":"US"}
+	]}}`
+	j := NewJSearch("k")
+	j.http = &fakeRoundTripper{body: body}
+
+	out, err := j.Discover(context.Background(), Query{Keywords: []string{"scrum"}})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("got %d openings, want 1", len(out))
+	}
+	if out[0].WorkLocationType != "hybrid" {
+		t.Errorf("WorkLocationType = %q, want hybrid (text over job_is_remote flag)", out[0].WorkLocationType)
+	}
+}
