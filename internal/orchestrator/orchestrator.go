@@ -224,13 +224,31 @@ func (o *Orchestrator) maybeEagerGenerate(ctx context.Context, qualifyingRank in
 }
 
 // buildQuery derives a discovery query from the resume profile and preferences.
+// User-specified target roles lead (so aspirational/AI-first roles are searched
+// first), followed by roles inferred from the resume.
 func buildQuery(resume store.Resume, prefs store.Preferences) jobsource.Query {
 	return jobsource.Query{
 		Keywords:          extractKeywords(resume.StructuredProfile),
-		RoleTitles:        extractRoleTitles(resume.StructuredProfile),
+		RoleTitles:        combineRoles(prefs.TargetRoles, extractRoleTitles(resume.StructuredProfile)),
 		WorkLocationPref:  string(prefs.WorkLocationPref),
 		RequiredSalaryMin: prefs.RequiredSalaryMin,
 	}
+}
+
+// combineRoles merges user-specified roles (first) with resume-derived roles,
+// de-duplicated case-insensitively.
+func combineRoles(userRoles, resumeRoles []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, role := range append(append([]string{}, userRoles...), resumeRoles...) {
+		key := strings.ToLower(strings.TrimSpace(role))
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, strings.TrimSpace(role))
+	}
+	return out
 }
 
 // extractRoleTitles pulls target job titles from the structured profile's

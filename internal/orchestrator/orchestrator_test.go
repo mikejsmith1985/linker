@@ -273,3 +273,16 @@ func TestRunSearchErrorsWithoutResume(t *testing.T) {
 
 // compile-time check that fakeStore satisfies the full Store interface.
 var _ store.Store = (*fakeStore)(nil)
+
+func TestCombineRolesUserFirstDeduped(t *testing.T) {
+	got := combineRoles([]string{"AI Delivery Lead", "Scrum Master"}, []string{"Scrum Master", "Agile Coach"})
+	want := []string{"AI Delivery Lead", "Scrum Master", "Agile Coach"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("combineRoles[%d] = %q, want %q (user roles first, deduped)", i, got[i], want[i])
+		}
+	}
+}

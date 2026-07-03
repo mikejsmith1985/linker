@@ -120,15 +120,19 @@ func (s *PG) SavePreferences(ctx context.Context, p Preferences) (int64, error) 
 	if err != nil {
 		return 0, fmt.Errorf("marshal enabled_sources: %w", err)
 	}
+	roles, err := json.Marshal(nonNilStrings(p.TargetRoles))
+	if err != nil {
+		return 0, fmt.Errorf("marshal target_roles: %w", err)
+	}
 	var id int64
 	err = s.db.QueryRow(ctx,
 		`INSERT INTO preferences
 		   (required_salary_min, salary_currency, work_location_pref, strict_work_location, location,
-		    willing_to_travel, willing_to_relocate, browser_automation_ack, enabled_sources, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now()) RETURNING id`,
+		    willing_to_travel, willing_to_relocate, browser_automation_ack, enabled_sources, target_roles, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now()) RETURNING id`,
 		p.RequiredSalaryMin, defaultString(p.SalaryCurrency, "USD"), string(defaultWorkLocation(p.WorkLocationPref)),
 		p.StrictWorkLocation, defaultString(p.Location, "United States"),
-		p.WillingToTravel, p.WillingToRelocate, p.BrowserAutomationAck, string(sources),
+		p.WillingToTravel, p.WillingToRelocate, p.BrowserAutomationAck, string(sources), string(roles),
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("insert preferences: %w", err)
@@ -141,13 +145,13 @@ func (s *PG) SavePreferences(ctx context.Context, p Preferences) (int64, error) 
 func (s *PG) GetPreferences(ctx context.Context) (Preferences, error) {
 	var p Preferences
 	var loc string
-	var sources []byte
+	var sources, roles []byte
 	err := s.db.QueryRow(ctx,
 		`SELECT id, required_salary_min, salary_currency, work_location_pref, strict_work_location, location,
-		        willing_to_travel, willing_to_relocate, browser_automation_ack, enabled_sources, updated_at
+		        willing_to_travel, willing_to_relocate, browser_automation_ack, enabled_sources, target_roles, updated_at
 		   FROM preferences ORDER BY id DESC LIMIT 1`,
 	).Scan(&p.ID, &p.RequiredSalaryMin, &p.SalaryCurrency, &loc, &p.StrictWorkLocation, &p.Location, &p.WillingToTravel,
-		&p.WillingToRelocate, &p.BrowserAutomationAck, &sources, &p.UpdatedAt)
+		&p.WillingToRelocate, &p.BrowserAutomationAck, &sources, &roles, &p.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Preferences{SalaryCurrency: "USD", WorkLocationPref: WorkRemote, StrictWorkLocation: true, Location: "United States"}, nil
 	}
@@ -157,6 +161,9 @@ func (s *PG) GetPreferences(ctx context.Context) (Preferences, error) {
 	p.WorkLocationPref = WorkLocation(loc)
 	if err := json.Unmarshal(sources, &p.EnabledSources); err != nil {
 		return Preferences{}, fmt.Errorf("unmarshal enabled_sources: %w", err)
+	}
+	if err := json.Unmarshal(roles, &p.TargetRoles); err != nil {
+		return Preferences{}, fmt.Errorf("unmarshal target_roles: %w", err)
 	}
 	return p, nil
 }

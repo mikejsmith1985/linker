@@ -35,7 +35,7 @@ func NewJSearch(apiKey string) *JSearch {
 		baseURL:  "https://jsearch.p.rapidapi.com/search-v2",
 		host:     "jsearch.p.rapidapi.com",
 		country:  "us",
-		numPages: 2,
+		numPages: 5,
 	}
 }
 

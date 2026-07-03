@@ -53,7 +53,7 @@ func TestMatchesAnyKeywordEmptyMatchesAll(t *testing.T) {
 func TestSearchTermsPrefersRoleTitlesCapped(t *testing.T) {
 	q := Query{
 		Keywords:   []string{"scrum", "kanban"},
-		RoleTitles: []string{"Scrum Master", "Release Train Engineer", "Agile Coach", "Delivery Lead"},
+		RoleTitles: []string{"Scrum Master", "Release Train Engineer", "Agile Coach", "Delivery Lead", "AI Delivery Lead", "AI Program Manager", "Agentic AI Engineer"},
 	}
 	terms := q.SearchTerms()
 	if len(terms) != maxSearchTerms {

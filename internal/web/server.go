@@ -153,6 +153,7 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		SalaryCurrency:       "USD",
 		WorkLocationPref:     parseWorkLocation(r.FormValue("work_location_pref")),
 		StrictWorkLocation:   r.FormValue("strict_work_location") != "",
+		TargetRoles:          splitLines(r.FormValue("target_roles")),
 		Location:             defaultLocation(r.FormValue("location")),
 		WillingToTravel:      r.FormValue("willing_to_travel") != "",
 		WillingToRelocate:    r.FormValue("willing_to_relocate") != "",
@@ -591,6 +592,8 @@ func docTypeLabel(docType store.DocType) string {
 }
 
 func joinFlags(flags []string) string { return strings.Join(flags, ", ") }
+
+func joinLines(items []string) string { return strings.Join(items, "\n") }
 
 // reviewClass maps a review status to a CSS class for styling the card.
 func reviewClass(status string) string {

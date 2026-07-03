@@ -22,11 +22,13 @@ CREATE TABLE IF NOT EXISTS preferences (
     willing_to_relocate    BOOLEAN     NOT NULL DEFAULT FALSE,
     browser_automation_ack BOOLEAN     NOT NULL DEFAULT FALSE,
     enabled_sources        JSONB       NOT NULL DEFAULT '[]',
+    target_roles           JSONB       NOT NULL DEFAULT '[]',
     updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 -- Add columns to preferences tables created before they existed.
 ALTER TABLE preferences ADD COLUMN IF NOT EXISTS location TEXT NOT NULL DEFAULT 'United States';
 ALTER TABLE preferences ADD COLUMN IF NOT EXISTS strict_work_location BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE preferences ADD COLUMN IF NOT EXISTS target_roles JSONB NOT NULL DEFAULT '[]';
 
 CREATE TABLE IF NOT EXISTS searches (
     id                   BIGSERIAL PRIMARY KEY,

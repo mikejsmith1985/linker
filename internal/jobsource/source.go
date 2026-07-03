@@ -22,7 +22,7 @@ type Query struct {
 
 // maxSearchTerms caps how many role-title queries a search-based source runs, to
 // bound API usage.
-const maxSearchTerms = 3
+const maxSearchTerms = 5
 
 // SearchTerms returns the distinct query strings a search-based source should run
 // — the target role titles when available, otherwise the joined skill keywords.
