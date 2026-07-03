@@ -2,21 +2,20 @@ package web
 
 import "github.com/mikejsmith1985/linker/internal/store"
 
-// AssistantPage renders the conversational assistant with its chat history.
-templ AssistantPage(messages []store.ChatMessage) {
-	@Layout("linker — assistant") {
-		<section class="card">
-			<h2>Assistant</h2>
-			<p class="hint">Refine your search in plain English — e.g. "only remote AI roles", "add Agentic AI Engineer and search", "what's my top match?", "turn on new-roles-only".</p>
-			<div id="chat-thread" class="chat">
-				@ChatThread(messages)
-			</div>
-			<form hx-post="/assistant/message" hx-target="#chat-thread" hx-swap="innerHTML" hx-on:htmx:after-request="this.reset()" class="chat-form">
-				<textarea name="message" rows="2" placeholder="Ask or tell me what to change…"></textarea>
-				<button type="submit" class="primary">Send</button>
-			</form>
-		</section>
-	}
+// AssistantPanel is the persistent side-ribbon assistant, loaded into the layout
+// so you can chat while viewing your matches.
+templ AssistantPanel(messages []store.ChatMessage) {
+	<div class="ribbon-head">
+		<strong>Assistant</strong>
+		<span class="hint">Refine your search in plain English</span>
+	</div>
+	<div id="chat-thread" class="chat ribbon-chat">
+		@ChatThread(messages)
+	</div>
+	<form hx-post="/assistant/message" hx-target="#chat-thread" hx-swap="innerHTML" hx-on:htmx:after-request="this.reset()" class="chat-form">
+		<textarea name="message" rows="2" placeholder="e.g. only remote AI roles, then search"></textarea>
+		<button type="submit" class="primary">Send</button>
+	</form>
 }
 
 // ChatThread renders the conversation, swapped in after each message.

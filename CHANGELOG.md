@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The assistant now lives in a **persistent side ribbon** visible on every page,
+  so you can chat with it while viewing your matches. The layout is wider
+  (two-column, uses the full screen) and collapses to a single column on narrow
+  windows.
+- Tailored resumes and cover letters now show a **rendered Markdown preview**;
+  the raw editor is tucked behind an "Edit" toggle.
 - **In-app assistant** (`/assistant`): a conversational helper that reads your
   current preferences and latest matches and, in plain English, answers questions
   ("what's my top match?") and takes actions — updating preferences (work location,

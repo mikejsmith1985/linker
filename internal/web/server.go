@@ -5,6 +5,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -22,6 +23,7 @@ import (
 	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-pdf/fpdf"
+	"github.com/yuin/goldmark"
 )
 
 // Actions are the orchestrator-backed operations the dashboard can trigger. The
@@ -81,7 +83,7 @@ func (s *Server) Routes() http.Handler {
 	r.Post("/search/companies", s.handleSearchCompanies)
 	r.Get("/search/{id}", s.handleSearchResults)
 	r.Get("/matches", s.handleMatches)
-	r.Get("/assistant", s.handleAssistant)
+	r.Get("/assistant/panel", s.handleAssistantPanel)
 	r.Post("/assistant/message", s.handleAssistantMessage)
 	r.Get("/job/{id}", s.handleJob)
 	r.Post("/job/{id}/review", s.handleReview)
@@ -266,14 +268,15 @@ func (s *Server) renderSearch(w http.ResponseWriter, r *http.Request, id int64) 
 	s.render(w, r, Results(search, matches))
 }
 
-// handleAssistant renders the conversational assistant page with chat history.
-func (s *Server) handleAssistant(w http.ResponseWriter, r *http.Request) {
+// handleAssistantPanel renders the side-ribbon assistant (thread + input),
+// loaded into the layout on every page.
+func (s *Server) handleAssistantPanel(w http.ResponseWriter, r *http.Request) {
 	messages, err := s.store.ListChatMessages(r.Context(), 100)
 	if err != nil {
 		s.fail(w, "load chat", err)
 		return
 	}
-	s.render(w, r, AssistantPage(messages))
+	s.render(w, r, AssistantPanel(messages))
 }
 
 // handleAssistantMessage runs one assistant turn and returns the updated thread.
@@ -641,6 +644,20 @@ func joinFlags(flags []string) string { return strings.Join(flags, ", ") }
 
 func joinLines(items []string) string { return strings.Join(items, "\n") }
 
+// markdownRenderer converts document Markdown to HTML for a formatted preview.
+// Raw HTML in the source is escaped (goldmark's default), so LLM-generated
+// content can't inject markup.
+var markdownRenderer = goldmark.New()
+
+// renderMarkdown returns the HTML rendering of Markdown, safe to embed.
+func renderMarkdown(md string) templ.Component {
+	var buf bytes.Buffer
+	if err := markdownRenderer.Convert([]byte(md), &buf); err != nil {
+		return templ.Raw("<p>" + templ.EscapeString(md) + "</p>")
+	}
+	return templ.Raw(buf.String())
+}
+
 func bubbleClass(role string) string {
 	if role == "assistant" {
 		return "assistant"
@@ -720,7 +737,18 @@ body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI,
 .brand { font-weight:700; letter-spacing:.02em; font-size:1.25rem; }
 nav a { color:var(--muted); text-decoration:none; margin-right:1.25rem; font-size:1.05rem; }
 nav a:hover { color:var(--ink); }
-main { max-width:1200px; margin:0 auto; padding:2rem 2.5rem; }
+.shell { display:flex; gap:1.5rem; align-items:flex-start; max-width:2400px; margin:0 auto; padding:1.5rem 2rem; }
+main { flex:1; min-width:0; }
+.ribbon { width:400px; flex:none; position:sticky; top:1.5rem; max-height:calc(100vh - 6rem); display:flex; flex-direction:column; background:var(--card); border:1px solid #2a2e38; border-radius:14px; padding:1rem; }
+.ribbon-head { display:flex; flex-direction:column; gap:.1rem; margin-bottom:.5rem; }
+.ribbon-chat { flex:1; max-height:none; }
+@media (max-width: 1100px) { .shell { flex-direction:column; } .ribbon { width:100%; position:static; max-height:none; } }
+.doc-preview { background:#0d0f14; border:1px solid #2a2e38; border-radius:10px; padding:1rem 1.4rem; margin:.6rem 0; }
+.doc-preview h1, .doc-preview h2, .doc-preview h3 { margin:.6rem 0 .3rem; }
+.doc-preview ul, .doc-preview ol { padding-left:1.4rem; }
+.doc-preview p { margin:.4rem 0; }
+details.doc-edit { margin:.4rem 0; }
+details.doc-edit summary { cursor:pointer; color:var(--accent); margin-bottom:.4rem; }
 h2 { margin:0 0 .8rem; font-size:1.35rem; }
 .card { background:var(--card); border:1px solid #2a2e38; border-radius:14px; padding:1.4rem 1.6rem; margin-bottom:1.25rem; }
 .card.empty { text-align:center; }
