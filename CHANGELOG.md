@@ -126,6 +126,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     opt-in and `playwright install` step.
 
 ### Fixed
+- A plain "remote" mention (e.g. a "Remote … Coach" title that is actually
+  hybrid) no longer classifies a JSearch role as remote. Remote now requires an
+  explicit fully-remote phrase, or JSearch's remote flag together with a
+  non-specific location — a remote-titled role tied to a specific city is treated
+  as hybrid and excluded under strict remote.
 - Company-feed (Greenhouse/Lever) work-location is now inferred from the job
   description text as well as the title/location, so strict work-location gating
   is consistent across the company-targeting search and the other sources.

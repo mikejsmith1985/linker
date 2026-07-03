@@ -129,18 +129,7 @@ func (j *JSearch) searchOne(ctx context.Context, term string) ([]RawOpening, err
 		if location == "" {
 			location = job.JobLocation // e.g. "Anywhere" for remote roles
 		}
-		// Prefer the text ("Hybrid 3 days on site") over JSearch's job_is_remote
-		// flag, which marks a role remote if it has any remote days. When the text
-		// is silent, trust the flag: remote if set, otherwise onsite — a not-remote
-		// role must not be left "unknown", or it slips past a remote-only filter.
-		workLocation := inferWorkLocation(job.JobTitle, job.JobDescription, location)
-		if workLocation == "unknown" {
-			if job.JobIsRemote {
-				workLocation = "remote"
-			} else {
-				workLocation = "onsite"
-			}
-		}
+		workLocation := job.workLocationType(location)
 		salaryMin, salaryMax := annualSalary(job.JobMinSalary, job.JobMaxSalary, job.JobSalaryPeriod)
 		openings = append(openings, RawOpening{
 			Title:            job.JobTitle,
@@ -155,6 +144,42 @@ func (j *JSearch) searchOne(ctx context.Context, term string) ([]RawOpening, err
 		})
 	}
 	return openings, nil
+}
+
+// workLocationType classifies a JSearch role conservatively for a remote-only
+// user. A plain "remote" mention (common in titles like "Remote … Coach" that
+// are actually hybrid) is NOT enough — remote requires either an explicit
+// fully-remote phrase, or JSearch's remote flag together with a non-specific
+// location. Explicit hybrid/onsite text always wins.
+func (j jsearchJob) workLocationType(location string) string {
+	blob := strings.ToLower(j.JobTitle + " " + j.JobDescription)
+	switch {
+	case strings.Contains(blob, "hybrid"):
+		return "hybrid"
+	case anyContains(blob, "on-site", "onsite", "on site", "in office", "in-office",
+		"days on site", "days in the office", "in person", "in-person", "on premise", "on-premise"):
+		return "onsite"
+	case anyContains(blob, "fully remote", "100% remote", "work from anywhere", "remote-first", "remote - us", "remote (us"):
+		return "remote"
+	case j.JobIsRemote && !isSpecificLocation(location):
+		return "remote"
+	case j.JobIsRemote && isSpecificLocation(location):
+		// Flagged remote but tied to a specific city — treat as hybrid, which a
+		// strict remote preference excludes.
+		return "hybrid"
+	default:
+		return "onsite"
+	}
+}
+
+// isSpecificLocation reports whether a location names a specific place (a
+// city/state list) rather than a remote marker like "Anywhere" or "United States".
+func isSpecificLocation(loc string) bool {
+	l := strings.ToLower(strings.TrimSpace(loc))
+	if l == "" || strings.Contains(l, "remote") || strings.Contains(l, "anywhere") {
+		return false
+	}
+	return strings.Contains(l, ",")
 }
 
 // bestApplyLink prefers a direct-to-employer application link over an aggregator
