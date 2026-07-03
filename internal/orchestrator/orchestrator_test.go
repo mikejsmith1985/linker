@@ -18,7 +18,8 @@ type fakeStore struct {
 	finishedWith  map[string]string
 	finishStatus  store.SearchStatus
 	openingSeq    int64
-	failUpsert    string // title whose UpsertOpening returns an error
+	failUpsert    string          // title whose UpsertOpening returns an error
+	seenKeys      map[string]bool // canonical keys treated as seen in a prior search
 }
 
 func (f *fakeStore) RunMigrations(context.Context) error                     { return nil }
@@ -55,7 +56,10 @@ var errFakeUpsert = errorString("upsert failed")
 type errorString string
 
 func (e errorString) Error() string { return string(e) }
-func (f *fakeStore) FindScoredOpening(context.Context, string) (store.MatchResult, error) {
+func (f *fakeStore) FindScoredOpening(_ context.Context, key string) (store.MatchResult, error) {
+	if f.seenKeys[key] {
+		return store.MatchResult{Score: 75, IsQualifying: true}, nil
+	}
 	return store.MatchResult{}, store.ErrNotFound
 }
 func (f *fakeStore) SetOpeningReviewStatus(context.Context, int64, string, string) error { return nil }
@@ -284,5 +288,30 @@ func TestCombineRolesUserFirstDeduped(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("combineRoles[%d] = %q, want %q (user roles first, deduped)", i, got[i], want[i])
 		}
+	}
+}
+
+func TestRunSearchNewRolesOnlySkipsSeen(t *testing.T) {
+	st := &fakeStore{
+		resume:   store.Resume{ID: 1, StructuredProfile: "Skills: Go", RawText: "facts"},
+		prefs:    store.Preferences{WorkLocationPref: store.WorkRemote, NewRolesOnly: true},
+		seenKeys: map[string]bool{"k-old": true}, // this posting was seen in a prior search
+	}
+	disc := fakeDiscoverer{
+		openings: []store.JobOpening{
+			{Title: "Old Role", CanonicalKey: "k-old", WorkLocationType: store.WorkRemote},
+			{Title: "New Role", CanonicalKey: "k-new", WorkLocationType: store.WorkRemote},
+		},
+		health: map[string]string{"src": jobsource.HealthSucceeded},
+	}
+	scorer := fakeScorer{byTitle: map[string]int{"New Role": 85}}
+
+	orch := New(st, disc, scorer, nil, nil, nil, nil)
+	if _, err := orch.RunSearch(context.Background()); err != nil {
+		t.Fatalf("RunSearch: %v", err)
+	}
+	// Only the new role is scored/persisted; the previously-seen one is skipped.
+	if len(st.created) != 1 || st.created[0].Score != 85 {
+		t.Errorf("created = %+v, want only the new role (seen one skipped)", st.created)
 	}
 }

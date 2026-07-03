@@ -85,6 +85,10 @@ templ Settings(prefs store.Preferences) {
 				<label class="check">
 					<input type="checkbox" name="willing_to_relocate" checked?={ prefs.WillingToRelocate }/> Willing to relocate
 				</label>
+				<label class="check">
+					<input type="checkbox" name="new_roles_only" checked?={ prefs.NewRolesOnly }/>
+					New roles only — hide postings already seen in a previous search
+				</label>
 				<fieldset class="danger-zone">
 					<legend>Browser automation (advanced, opt-in)</legend>
 					<p class="warn">
