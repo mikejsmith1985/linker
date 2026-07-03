@@ -146,6 +146,11 @@ func (o *Orchestrator) runWith(ctx context.Context, disc Discoverer) (int64, err
 func (o *Orchestrator) scoreAll(ctx context.Context, openings []store.JobOpening, resume store.Resume, prefs store.Preferences) ([]scored, error) {
 	out := make([]scored, 0, len(openings))
 	for _, opening := range openings {
+		// Strict work-location: drop conflicting roles outright (no scoring cost,
+		// never shown) rather than penalizing them.
+		if scoring.HardExcluded(opening, prefs) {
+			continue
+		}
 		// A single bad opening (unpersistable data, a transient scoring error)
 		// must not abort the whole search — log it and move on.
 		openingID, err := o.store.UpsertOpening(ctx, opening)

@@ -32,6 +32,20 @@ func ApplyGates(opening store.JobOpening, prefs store.Preferences) GateResult {
 	return result
 }
 
+// HardExcluded reports whether an opening must be excluded outright — not scored,
+// not shown — because it conflicts with a strict work-location preference (e.g. a
+// hybrid or onsite role when the user wants remote only). Unconfirmed ("unknown")
+// roles are not hard-dropped, to avoid hiding a genuinely-remote role.
+func HardExcluded(opening store.JobOpening, prefs store.Preferences) bool {
+	if !prefs.StrictWorkLocation {
+		return false
+	}
+	if opening.WorkLocationType == store.WorkUnknown {
+		return false
+	}
+	return workLocationConflicts(prefs.WorkLocationPref, opening.WorkLocationType)
+}
+
 // applyLocationGate fires when the opening states a geographic eligibility that
 // excludes the user's location. It is "innocent until proven guilty": it only
 // gates when the posting names a recognized foreign-only region and offers no

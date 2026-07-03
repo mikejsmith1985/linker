@@ -28,6 +28,7 @@ type webFakeStore struct {
 	openedRecorded bool
 	openedFlag     bool
 	reviewStatus   string
+	reviewReason   string
 	latestSearchID int64
 }
 
@@ -59,8 +60,9 @@ func (f *webFakeStore) UpsertOpening(context.Context, store.JobOpening) (int64, 
 func (f *webFakeStore) FindScoredOpening(context.Context, string) (store.MatchResult, error) {
 	return store.MatchResult{}, store.ErrNotFound
 }
-func (f *webFakeStore) SetOpeningReviewStatus(_ context.Context, _ int64, status string) error {
+func (f *webFakeStore) SetOpeningReviewStatus(_ context.Context, _ int64, status, reason string) error {
 	f.reviewStatus = status
+	f.reviewReason = reason
 	return nil
 }
 func (f *webFakeStore) LatestCompletedSearchID(context.Context) (int64, error) {

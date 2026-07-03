@@ -132,3 +132,24 @@ func TestStrongGatesPushBelowThreshold(t *testing.T) {
 		t.Errorf("gated final = %d, want < %d", final, QualifyingScoreThreshold)
 	}
 }
+
+func TestHardExcludedStrictRemote(t *testing.T) {
+	prefs := store.Preferences{WorkLocationPref: store.WorkRemote, StrictWorkLocation: true}
+	if !HardExcluded(store.JobOpening{WorkLocationType: store.WorkHybrid}, prefs) {
+		t.Error("hybrid should be hard-excluded for strict remote")
+	}
+	if !HardExcluded(store.JobOpening{WorkLocationType: store.WorkOnsite}, prefs) {
+		t.Error("onsite should be hard-excluded for strict remote")
+	}
+	if HardExcluded(store.JobOpening{WorkLocationType: store.WorkRemote}, prefs) {
+		t.Error("remote must not be excluded")
+	}
+	if HardExcluded(store.JobOpening{WorkLocationType: store.WorkUnknown}, prefs) {
+		t.Error("unknown must not be hard-excluded (avoid hiding real remote roles)")
+	}
+	// Not strict → nothing hard-excluded.
+	loose := store.Preferences{WorkLocationPref: store.WorkRemote, StrictWorkLocation: false}
+	if HardExcluded(store.JobOpening{WorkLocationType: store.WorkHybrid}, loose) {
+		t.Error("non-strict must not hard-exclude")
+	}
+}

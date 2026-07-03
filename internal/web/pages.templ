@@ -72,6 +72,10 @@ templ Settings(prefs store.Preferences) {
 					</select>
 				</label>
 				<label class="check">
+					<input type="checkbox" name="strict_work_location" checked?={ prefs.StrictWorkLocation }/>
+					Strict — exclude conflicting roles entirely (e.g. hide all hybrid &amp; onsite when Remote)
+				</label>
+				<label class="check">
 					<input type="checkbox" name="willing_to_travel" checked?={ prefs.WillingToTravel }/> Willing to travel
 				</label>
 				<label class="check">
@@ -145,7 +149,12 @@ templ matchCard(m store.MatchWithOpening) {
 				<span class="badge star">★ Interested</span>
 			}
 			if m.Opening.ReviewStatus == "passed" {
-				<span class="badge passed-tag">Passed</span>
+				<span class="badge passed-tag">
+					Passed
+					if m.Opening.ReviewReason != "" {
+						{ " — " + m.Opening.ReviewReason }
+					}
+				</span>
 			}
 		</div>
 		<p class="hint">{ m.Opening.Location } · { salaryText(m.Opening) } · via { sourcesText(m.Opening) }</p>
@@ -160,13 +169,24 @@ templ matchCard(m store.MatchWithOpening) {
 				hx-target="closest .match"
 				hx-swap="outerHTML"
 			>★ Interested</button>
-			<button
-				class="ghost"
+			<select
+				class="pass-select"
+				name="reason"
 				hx-post={ jobPath(m.ID) + "/review" }
 				hx-vals={ `{"status":"passed"}` }
 				hx-target="closest .match"
 				hx-swap="outerHTML"
-			>Pass</button>
+				hx-trigger="change"
+			>
+				<option value="" disabled selected>Pass — why?</option>
+				<option value="Hybrid/onsite">Hybrid / onsite</option>
+				<option value="Location">Location / too far</option>
+				<option value="No longer accepting">No longer accepting</option>
+				<option value="Compensation">Compensation</option>
+				<option value="Seniority mismatch">Seniority mismatch</option>
+				<option value="Not a fit">Not a fit</option>
+				<option value="Other">Other</option>
+			</select>
 			if m.Opening.ReviewStatus != "new" {
 				<button
 					class="ghost"

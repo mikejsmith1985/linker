@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Strict work-location** preference (default on): when set, roles that conflict
+  with your work-location choice are **excluded outright** — a remote-only search
+  now hides every hybrid/onsite role instead of merely ranking it low. Toggle in
+  Preferences.
+- **Pass reasons**: the Pass control is now a dropdown (Hybrid/onsite, Location,
+  No longer accepting, Compensation, Seniority, Not a fit, Other) — the reason is
+  stored with the pass and shown on the card, building richer review feedback.
+- JSearch biases toward postings from the last month to reduce expired/closed
+  listings.
 - **Matches page** (`/matches`): always shows your latest completed search's
   results, so closing the tab never loses your list — no saved URL needed.
 - **Review workflow**: each match has **Interested** / **Pass** / **Undo** buttons.
