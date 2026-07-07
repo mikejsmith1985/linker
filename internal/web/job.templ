@@ -3,8 +3,10 @@ package web
 import "github.com/mikejsmith1985/linker/internal/store"
 
 // Job renders one opening with its score, explanation, and both tailored
-// documents for review, edit, and download.
-templ Job(match store.MatchWithOpening, tailored store.GeneratedDocument, cover store.GeneratedDocument) {
+// documents for review, edit, and download. When needsDescription is set the
+// fetched posting looked like a login wall, so documents are withheld and the
+// user is prompted to paste the real description for an accurate re-score.
+templ Job(match store.MatchWithOpening, tailored store.GeneratedDocument, cover store.GeneratedDocument, needsDescription bool, canRescore bool) {
 	@Layout("linker — " + match.Opening.Title) {
 		<section class="card">
 			<div class="meta">
@@ -25,6 +27,13 @@ templ Job(match store.MatchWithOpening, tailored store.GeneratedDocument, cover 
 			</div>
 			<p class="hint">Opening the posting takes you to the original listing to submit your tailored resume and cover letter yourself — the app never submits anything for you.</p>
 		</section>
+		if needsDescription {
+			<section class="card">
+				<h2>⚠ This score may be unreliable</h2>
+				<p class="warn">The fetched page looks like a login wall or is missing the job description (common with LinkedIn), so the score above was computed from almost no real posting text. Paste the full job description below to get an accurate score and tailored documents.</p>
+				@pasteDescriptionForm(match.ID)
+			</section>
+		}
 		<section class="card">
 			<h2>How to apply</h2>
 			<p class="hint">Aggregator "Quick Apply" (ZipRecruiter/Indeed) is frequently filtered out by employer applicant-tracking systems. For a <strong>direct employer</strong>, applying on their own careers page gets you seen; for a <strong>staffing/recruiting firm</strong>, applying through their posting is the right path.</p>
@@ -37,9 +46,28 @@ templ Job(match store.MatchWithOpening, tailored store.GeneratedDocument, cover 
 				<a class="secondary btn" href={ templ.SafeURL(match.Opening.OriginalURL) } target="_blank" rel="noopener">Original listing ↗</a>
 			</div>
 		</section>
-		@documentCard(match.ID, tailored)
-		@documentCard(match.ID, cover)
+		if !needsDescription {
+			@documentCard(match.ID, tailored)
+			@documentCard(match.ID, cover)
+			if canRescore {
+				<details class="card">
+					<summary>Not the right score? Re-score with the full job description</summary>
+					<p class="hint">If the posting text was incomplete (for example a LinkedIn listing behind a login), paste the full description here to recompute the score and regenerate your documents from it.</p>
+					@pasteDescriptionForm(match.ID)
+				</details>
+			}
+		}
 	}
+}
+
+// pasteDescriptionForm posts the real job-description text to be re-scored.
+templ pasteDescriptionForm(matchID int64) {
+	<form method="post" action={ templ.SafeURL(jobPath(matchID) + "/description") }>
+		<textarea name="description" rows="12" placeholder="Paste the full job description here…" required></textarea>
+		<div class="actions">
+			<button type="submit" class="primary">Re-score with this description</button>
+		</div>
+	</form>
 }
 
 templ documentCard(matchID int64, doc store.GeneratedDocument) {

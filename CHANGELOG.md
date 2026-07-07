@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Pasted-URL and company searches now always show every result with its score**,
+  regardless of the 70-point qualifying threshold. When you point the app at a
+  specific job you're asking "how do I fit *this* one?" — so the score and its
+  explanation are always visible and documents can be generated, instead of the
+  job silently vanishing for scoring 68. Broad discovery still uses the threshold
+  to filter its firehose.
+- **Paste-the-description re-score.** LinkedIn (and similar) return a login wall
+  instead of the real posting, so the fetched "description" was navigation chrome
+  and the score was computed against almost no real text. The job page now detects
+  this, warns that the score is unreliable, and lets you paste the full job
+  description to re-score accurately — which also regenerates the tailored
+  documents from the corrected text.
+
 ### Fixed
 - **PDF downloads now render Markdown as real formatting** instead of dumping raw
   Markdown. Headings, **bold**, and bullet lists become proper typography, a

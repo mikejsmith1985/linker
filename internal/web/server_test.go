@@ -69,7 +69,12 @@ func (f *webFakeStore) SetOpeningReviewStatus(_ context.Context, _ int64, status
 	f.reviewReason = reason
 	return nil
 }
-func (f *webFakeStore) FailRunningSearches(context.Context) error { return nil }
+func (f *webFakeStore) UpdateOpeningDescription(context.Context, int64, string) error { return nil }
+func (f *webFakeStore) UpdateMatchScore(context.Context, int64, int, string, map[string]int, bool) error {
+	return nil
+}
+func (f *webFakeStore) DeleteDocumentsForMatch(context.Context, int64) error { return nil }
+func (f *webFakeStore) FailRunningSearches(context.Context) error            { return nil }
 func (f *webFakeStore) ListRecentSearches(context.Context, int) ([]store.SearchSummary, error) {
 	return []store.SearchSummary{{Search: store.Search{ID: 7, Status: store.SearchCompleted}, QualifyingCount: 2}}, nil
 }
@@ -400,6 +405,84 @@ func TestDownloadDocumentSetsReadableFilename(t *testing.T) {
 	want := `attachment; filename="Michael_Smith_Staff_Software_Engineer_Resume.txt"`
 	if got := rr.Header().Get("Content-Disposition"); got != want {
 		t.Errorf("Content-Disposition = %q, want %q", got, want)
+	}
+}
+
+// fakeRescorer records the re-score call for handler tests.
+type fakeRescorer struct {
+	matchID     int64
+	description string
+}
+
+func (f *fakeRescorer) RescoreWithDescription(_ context.Context, matchID int64, description string) (store.MatchWithOpening, error) {
+	f.matchID = matchID
+	f.description = description
+	return store.MatchWithOpening{}, nil
+}
+
+func TestRescoreWithDescriptionHandler(t *testing.T) {
+	st := &webFakeStore{}
+	rescorer := &fakeRescorer{}
+	server := NewServer(st, fakeIngestor{}, &fakeActions{}, &fakeDocs{}, fakeChatter{}, nil).WithRescorer(rescorer).Routes()
+
+	req := httptest.NewRequest(http.MethodPost, "/job/5/description", strings.NewReader("description=Full+JD+text+here"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	server.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rr.Code)
+	}
+	if rescorer.matchID != 5 || rescorer.description != "Full JD text here" {
+		t.Errorf("rescorer called with (%d, %q), want (5, %q)", rescorer.matchID, rescorer.description, "Full JD text here")
+	}
+}
+
+func TestRescoreWithoutRescorerUnavailable(t *testing.T) {
+	st := &webFakeStore{}
+	req := httptest.NewRequest(http.MethodPost, "/job/5/description", strings.NewReader("description=x"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotImplemented {
+		t.Errorf("status = %d, want 501 when re-scoring is not wired", rr.Code)
+	}
+}
+
+func TestJobPageWithAuthwallSkipsDocGeneration(t *testing.T) {
+	// A visible match whose description is a login wall should prompt for the real
+	// text and NOT burn LLM calls generating documents from navigation chrome.
+	st := &webFakeStore{match: store.MatchWithOpening{
+		MatchResult: store.MatchResult{ID: 5, Score: 68, IsQualifying: true},
+		Opening:     store.JobOpening{Title: "AI Role", Description: "Sign in Join now"},
+	}}
+	docs := &fakeDocs{}
+	server := NewServer(st, fakeIngestor{}, &fakeActions{}, docs, fakeChatter{}, nil).WithRescorer(&fakeRescorer{}).Routes()
+	rr := httptest.NewRecorder()
+	server.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/job/5", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if docs.calls != 0 {
+		t.Errorf("generated documents %d times for a login-wall page, want 0", docs.calls)
+	}
+	if !strings.Contains(rr.Body.String(), "score may be unreliable") {
+		t.Error("job page should show the login-wall warning")
+	}
+}
+
+func TestLooksLikeAuthwall(t *testing.T) {
+	wall := strings.Repeat("Apply now for this role. ", 20) + " Sign in Join now See who has hired"
+	if !looksLikeAuthwall(wall) {
+		t.Error("login-wall text (multiple markers) should be flagged")
+	}
+	if !looksLikeAuthwall("short blurb") {
+		t.Error("a very thin description should be flagged")
+	}
+	realJD := strings.Repeat("We seek a senior engineer skilled in Go and Postgres who ships. ", 12)
+	if looksLikeAuthwall(realJD) {
+		t.Error("a full real job description should not be flagged")
 	}
 }
 
