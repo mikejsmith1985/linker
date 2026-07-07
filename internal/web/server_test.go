@@ -372,6 +372,7 @@ func TestInferNameFromResume(t *testing.T) {
 		{"name on first line", store.Resume{ID: 1, RawText: "Michael Smith\nSoftware Engineer\nmike@example.com"}, "Michael Smith"},
 		{"skips heading to name line", store.Resume{ID: 1, RawText: "RESUME\nMichael Smith\n555-1234"}, "Michael Smith"},
 		{"falls back to filename", store.Resume{ID: 1, OriginalFilename: "Michael_Smith_Resume.pdf", RawText: "SUMMARY OF QUALIFICATIONS\n10 years building things"}, "Michael Smith"},
+		{"drops dedup suffix from filename", store.Resume{ID: 1, OriginalFilename: "Michael_Smith_Resume (1).docx", RawText: "MICHAEL SMITHAgentic Process Builder no newlines here"}, "Michael Smith"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -399,6 +400,83 @@ func TestDownloadDocumentSetsReadableFilename(t *testing.T) {
 	want := `attachment; filename="Michael_Smith_Staff_Software_Engineer_Resume.txt"`
 	if got := rr.Header().Get("Content-Disposition"); got != want {
 		t.Errorf("Content-Disposition = %q, want %q", got, want)
+	}
+}
+
+func TestParseInlineRuns(t *testing.T) {
+	runs := parseInlineRuns("Plain **bold bit** and *italic* end")
+	want := []inlineRun{
+		{text: "Plain "},
+		{text: "bold bit", isBold: true},
+		{text: " and "},
+		{text: "italic", isItalic: true},
+		{text: " end"},
+	}
+	if len(runs) != len(want) {
+		t.Fatalf("got %d runs %+v, want %d", len(runs), runs, len(want))
+	}
+	for i := range want {
+		if runs[i] != want[i] {
+			t.Errorf("run[%d] = %+v, want %+v", i, runs[i], want[i])
+		}
+	}
+}
+
+func TestNormalizeForPDF(t *testing.T) {
+	// The arrow and ellipsis are not in Windows-1252 and must fold to ASCII so
+	// they don't get dropped by the PDF font encoder.
+	if got := normalizeForPDF("QA Lead → Architect…"); got != "QA Lead - Architect..." {
+		t.Errorf("normalizeForPDF = %q, want %q", got, "QA Lead - Architect...")
+	}
+}
+
+func TestStripInlineMarkers(t *testing.T) {
+	if got := stripInlineMarkers("**Bold** and `code` and *em*"); got != "Bold and code and em" {
+		t.Errorf("stripInlineMarkers = %q", got)
+	}
+}
+
+func TestIsHorizontalRuleAndBullet(t *testing.T) {
+	for _, line := range []string{"---", "***", "___", "-----"} {
+		if !isHorizontalRule(line) {
+			t.Errorf("isHorizontalRule(%q) = false, want true", line)
+		}
+	}
+	for _, line := range []string{"- item", "hello", "###"} {
+		if isHorizontalRule(line) {
+			t.Errorf("isHorizontalRule(%q) = true, want false", line)
+		}
+	}
+	for _, line := range []string{"- item", "* item", "• item"} {
+		if !isBulletLine(line) {
+			t.Errorf("isBulletLine(%q) = false, want true", line)
+		}
+	}
+	if isBulletLine("**bold**") {
+		t.Error("isBulletLine(**bold**) = true, want false")
+	}
+}
+
+// TestRenderMarkdownToPDFProducesValidPDF drives the full Markdown-to-PDF path
+// with headings, bold, bullets, a rule, and UTF-8 punctuation to confirm it
+// emits a valid PDF stream without panicking (regression for the raw-dump PDF).
+func TestRenderMarkdownToPDFProducesValidPDF(t *testing.T) {
+	markdown := "# Michael Smith\n\n**Scrum Master** · Agile Coach — expert\n\n---\n\n## Experience\n\n- Led delivery for a team of 8–12 engineers\n- Cut carryover 25%"
+	st := &webFakeStore{
+		doc:          store.GeneratedDocument{ID: 9, Type: store.CoverLetter, ContentMarkdown: markdown},
+		activeResume: store.Resume{ID: 1, RawText: "Michael Smith"},
+	}
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/job/5/documents/cover_letter/download?fmt=pdf", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if !strings.HasPrefix(rr.Body.String(), "%PDF") {
+		t.Fatal("body is not a PDF")
+	}
+	if rr.Body.Len() < 800 {
+		t.Errorf("PDF suspiciously small (%d bytes) — rendering may have failed", rr.Body.Len())
 	}
 }
 

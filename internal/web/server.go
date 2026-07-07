@@ -625,7 +625,8 @@ func nameFromFilename(filename string) string {
 		base = base[:dot]
 	}
 	base = strings.Map(func(char rune) rune {
-		if char == '_' || char == '-' || char == '.' {
+		switch char {
+		case '_', '-', '.', '(', ')':
 			return ' '
 		}
 		return char
@@ -636,9 +637,23 @@ func nameFromFilename(filename string) string {
 		case "resume", "cv", "cover", "letter":
 			continue
 		}
+		if !containsLetter(word) {
+			continue // drop dedup suffixes like the "1" in "Michael Smith (1)"
+		}
 		kept = append(kept, word)
 	}
 	return strings.Join(kept, " ")
+}
+
+// containsLetter reports whether a word has at least one letter, used to discard
+// purely numeric or symbolic filename fragments when inferring a name.
+func containsLetter(word string) bool {
+	for _, char := range word {
+		if unicode.IsLetter(char) {
+			return true
+		}
+	}
+	return false
 }
 
 // handleSelect records that the user wants to pursue this opening (FR-011).
@@ -692,24 +707,213 @@ func (s *Server) resumeFacts(ctx context.Context) string {
 	return resume.RawText
 }
 
+// PDF layout constants — sizes are in points (font) or millimeters (geometry).
+const (
+	pdfMarginMM     = 18.0 // page margin on all four sides
+	pdfBodyPt       = 10.5 // body-text font size
+	pdfLineHeight   = 5.0  // millimeters advanced per text line
+	pdfBulletIndent = 6.0  // hanging indent for wrapped bullet lines
+)
+
+// writePDF renders a generated document's Markdown into a formatted PDF and
+// streams it as an attachment. Unlike a raw text dump, it turns Markdown into
+// real typography (headings, bold, bullet lists) and maps UTF-8 punctuation into
+// the core font's encoding so em dashes and middots render correctly.
 func (s *Server) writePDF(w http.ResponseWriter, base, markdown string) {
 	pdf := fpdf.New("P", "mm", "Letter", "")
-	pdf.SetMargins(20, 20, 20)
+	pdf.SetMargins(pdfMarginMM, pdfMarginMM, pdfMarginMM)
+	pdf.SetAutoPageBreak(true, pdfMarginMM)
 	pdf.AddPage()
-	pdf.SetFont("Helvetica", "", 11)
-	for _, line := range strings.Split(markdown, "\n") {
-		// MultiCell wraps long lines; an empty line becomes vertical space.
-		if strings.TrimSpace(line) == "" {
-			pdf.Ln(4)
-			continue
-		}
-		pdf.MultiCell(0, 5, line, "", "", false)
-	}
+	pdf.SetFont("Helvetica", "", pdfBodyPt)
+	// The core Helvetica font speaks Windows-1252, not UTF-8. We first fold the
+	// few common symbols that Windows-1252 lacks (arrows, ellipsis) down to ASCII
+	// so they don't silently vanish, then translate the rest — this replaces the
+	// "â€"/Â·" mojibake a raw UTF-8 write would produce with correct glyphs.
+	toWindows1252 := pdf.UnicodeTranslatorFromDescriptor("cp1252")
+	translate := func(text string) string { return toWindows1252(normalizeForPDF(text)) }
+	renderMarkdownToPDF(pdf, markdown, translate)
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+base+".pdf\"")
 	if err := pdf.Output(w); err != nil {
 		s.log.Error("pdf output failed", "err", err)
 	}
+}
+
+// pdfSymbolFolds maps Unicode symbols that Windows-1252 cannot represent to
+// ASCII fallbacks, so they render as sensible characters instead of being
+// dropped by the font encoder (e.g. the "→" in "QA Lead → Architect").
+var pdfSymbolFolds = strings.NewReplacer(
+	"→", "-", "←", "-", "↔", "-", "⇒", "=>", "⟶", "-", "➔", "-", "➜", "-",
+	"…", "...", "•", "•", "▪", "•", "◦", "•", "‣", "•",
+	"✓", "-", "✔", "-", "★", "*", "☆", "*",
+	" ", " ", " ", " ", " ", " ", "​", "",
+)
+
+// normalizeForPDF folds unsupported symbols to ASCII before font encoding.
+func normalizeForPDF(text string) string {
+	return pdfSymbolFolds.Replace(text)
+}
+
+// renderMarkdownToPDF walks the Markdown line by line and emits the matching
+// PDF block: headings, horizontal rules, bullet items, blank-line spacing, or a
+// normal paragraph. Inline emphasis (**bold**, *italic*) is honored within each.
+func renderMarkdownToPDF(pdf *fpdf.Fpdf, markdown string, translate func(string) string) {
+	for _, rawLine := range strings.Split(markdown, "\n") {
+		trimmed := strings.TrimSpace(rawLine)
+		switch {
+		case trimmed == "":
+			pdf.Ln(pdfLineHeight * 0.6)
+		case isHorizontalRule(trimmed):
+			drawHorizontalRule(pdf)
+		case strings.HasPrefix(trimmed, "#"):
+			renderHeading(pdf, trimmed, translate)
+		case isBulletLine(trimmed):
+			renderBullet(pdf, trimmed, translate)
+		default:
+			renderInlineRuns(pdf, trimmed, translate)
+			pdf.Ln(pdfLineHeight)
+		}
+	}
+}
+
+// renderHeading emits a Markdown ATX heading (#..######) as bold text sized by
+// its level, with a little breathing room above it.
+func renderHeading(pdf *fpdf.Fpdf, line string, translate func(string) string) {
+	level := 0
+	for level < len(line) && line[level] == '#' {
+		level++
+	}
+	text := stripInlineMarkers(strings.TrimSpace(line[level:]))
+	size := pdfHeadingSize(level)
+	pdf.Ln(pdfLineHeight * 0.4)
+	pdf.SetFont("Helvetica", "B", size)
+	pdf.MultiCell(0, size*0.5, translate(text), "", "L", false)
+	pdf.SetFont("Helvetica", "", pdfBodyPt)
+}
+
+// pdfHeadingSize maps a heading level (1 = biggest) to a font size in points.
+func pdfHeadingSize(level int) float64 {
+	switch level {
+	case 1:
+		return 17
+	case 2:
+		return 13.5
+	case 3:
+		return 11.5
+	default:
+		return pdfBodyPt + 0.5
+	}
+}
+
+// renderBullet emits a "- " / "* " list item as a real bullet glyph with a
+// hanging indent so wrapped continuation lines line up under the text.
+func renderBullet(pdf *fpdf.Fpdf, line string, translate func(string) string) {
+	content := strings.TrimSpace(line[1:])
+	startX := pdf.GetX()
+	pdf.SetFont("Helvetica", "", pdfBodyPt)
+	pdf.Write(pdfLineHeight, translate("•  "))
+	pdf.SetLeftMargin(startX + pdfBulletIndent)
+	renderInlineRuns(pdf, content, translate)
+	pdf.Ln(pdfLineHeight)
+	pdf.SetLeftMargin(startX)
+	pdf.SetX(startX)
+}
+
+// renderInlineRuns writes a line of inline Markdown, switching the font weight
+// for **bold** and *italic* spans. fpdf's Write continues at the current
+// position and wraps automatically at the right margin.
+func renderInlineRuns(pdf *fpdf.Fpdf, text string, translate func(string) string) {
+	for _, run := range parseInlineRuns(text) {
+		style := ""
+		if run.isBold {
+			style += "B"
+		}
+		if run.isItalic {
+			style += "I"
+		}
+		pdf.SetFont("Helvetica", style, pdfBodyPt)
+		pdf.Write(pdfLineHeight, translate(run.text))
+	}
+	pdf.SetFont("Helvetica", "", pdfBodyPt)
+}
+
+// inlineRun is a stretch of text sharing one emphasis style.
+type inlineRun struct {
+	text     string
+	isBold   bool
+	isItalic bool
+}
+
+// parseInlineRuns splits inline Markdown into styled runs by toggling on ** and
+// * markers. Backticks are dropped (inline code renders as plain text). Unbalanced
+// markers simply leave the style toggled — good enough for resume/cover-letter copy.
+func parseInlineRuns(text string) []inlineRun {
+	var runs []inlineRun
+	var buffer strings.Builder
+	isBold, isItalic := false, false
+	flush := func() {
+		if buffer.Len() > 0 {
+			runs = append(runs, inlineRun{text: buffer.String(), isBold: isBold, isItalic: isItalic})
+			buffer.Reset()
+		}
+	}
+	chars := []rune(text)
+	for i := 0; i < len(chars); i++ {
+		switch {
+		case chars[i] == '*' && i+1 < len(chars) && chars[i+1] == '*':
+			flush()
+			isBold = !isBold
+			i++ // consume the second '*'
+		case chars[i] == '*':
+			flush()
+			isItalic = !isItalic
+		case chars[i] == '`':
+			// drop inline-code backticks
+		default:
+			buffer.WriteRune(chars[i])
+		}
+	}
+	flush()
+	if len(runs) == 0 {
+		runs = append(runs, inlineRun{text: text})
+	}
+	return runs
+}
+
+// stripInlineMarkers removes emphasis markers, used for headings where we apply
+// styling structurally rather than parsing inline runs.
+func stripInlineMarkers(text string) string {
+	return strings.NewReplacer("**", "", "*", "", "`", "").Replace(text)
+}
+
+// isHorizontalRule reports whether a line is a Markdown thematic break
+// (three or more -, *, or _ characters and nothing else).
+func isHorizontalRule(line string) bool {
+	if len(line) < 3 {
+		return false
+	}
+	for _, char := range line {
+		if char != '-' && char != '*' && char != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+// isBulletLine reports whether a line begins an unordered list item.
+func isBulletLine(line string) bool {
+	return strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") || strings.HasPrefix(line, "• ")
+}
+
+// drawHorizontalRule draws a thin grey divider across the text column.
+func drawHorizontalRule(pdf *fpdf.Fpdf) {
+	pdf.Ln(pdfLineHeight * 0.3)
+	posY := pdf.GetY()
+	left, _, right, _ := pdf.GetMargins()
+	pageWidth, _ := pdf.GetPageSize()
+	pdf.SetDrawColor(190, 190, 190)
+	pdf.Line(left, posY, pageWidth-right, posY)
+	pdf.Ln(pdfLineHeight * 0.7)
 }
 
 func writeAttachment(w http.ResponseWriter, filename, contentType string, body []byte) {
