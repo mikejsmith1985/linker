@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/mikejsmith1985/linker/internal/orchestrator"
 	"github.com/mikejsmith1985/linker/internal/resume"
@@ -472,7 +473,7 @@ func (s *Server) handleDownloadDocument(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "document not found", http.StatusNotFound)
 		return
 	}
-	base := fmt.Sprintf("%s-%d", docType, id)
+	base := s.downloadFilenameBase(r.Context(), id, docType)
 	switch r.URL.Query().Get("fmt") {
 	case "pdf":
 		s.writePDF(w, base, doc.ContentMarkdown)
@@ -481,6 +482,163 @@ func (s *Server) handleDownloadDocument(w http.ResponseWriter, r *http.Request) 
 	default:
 		writeAttachment(w, base+".txt", "text/plain; charset=utf-8", []byte(doc.ContentMarkdown))
 	}
+}
+
+// downloadFilenameBase builds the "Candidate_JobTitle_DocType" base name (no
+// extension) for a downloaded document so the saved file is immediately
+// identifiable without renaming. A missing job title or name simply drops that
+// segment rather than failing the download.
+func (s *Server) downloadFilenameBase(ctx context.Context, matchID int64, docType store.DocType) string {
+	jobTitle := ""
+	if match, err := s.store.GetMatchWithOpening(ctx, matchID); err == nil {
+		jobTitle = match.Opening.Title
+	}
+	return documentFilenameBase(s.resolveCandidateName(ctx), jobTitle, docType)
+}
+
+// resolveCandidateName determines the name that leads download filenames. The
+// data model stores no explicit candidate name, so we infer it from the active
+// resume, falling back to a generic label when no resume is present.
+func (s *Server) resolveCandidateName(ctx context.Context) string {
+	resume, err := s.store.GetActiveResume(ctx)
+	if err == nil {
+		if name := inferNameFromResume(resume); name != "" {
+			return name
+		}
+	}
+	return "Candidate"
+}
+
+// documentFilenameBase joins the candidate name, job title, and document-type
+// label into a single filename-safe token (e.g. "Michael_Smith_Staff_Engineer_Resume").
+// Empty segments are omitted so the result never contains doubled or trailing separators.
+func documentFilenameBase(candidateName, jobTitle string, docType store.DocType) string {
+	segments := make([]string, 0, 3)
+	for _, raw := range []string{candidateName, jobTitle, docTypeFilenameLabel(docType)} {
+		if token := sanitizeFilenameSegment(raw); token != "" {
+			segments = append(segments, token)
+		}
+	}
+	if len(segments) == 0 {
+		return string(docType) // defensive: should never happen since the label is always present
+	}
+	return strings.Join(segments, "_")
+}
+
+// docTypeFilenameLabel is the concise document kind used in download filenames
+// ("Resume"/"Cover Letter") — distinct from docTypeLabel, which titles the UI.
+func docTypeFilenameLabel(docType store.DocType) string {
+	switch docType {
+	case store.CoverLetter:
+		return "Cover Letter"
+	case store.TailoredResume:
+		return "Resume"
+	default:
+		return string(docType)
+	}
+}
+
+// sanitizeFilenameSegment reduces a string to a filename-safe token: runs of
+// characters that are neither letters nor digits collapse to a single
+// underscore, and leading/trailing underscores are trimmed. Hyphens are kept as
+// word joiners (e.g. "Mary-Jane") rather than dropped.
+func sanitizeFilenameSegment(raw string) string {
+	var builder strings.Builder
+	wasSeparator := false
+	for _, char := range strings.TrimSpace(raw) {
+		switch {
+		case unicode.IsLetter(char) || unicode.IsDigit(char):
+			builder.WriteRune(char)
+			wasSeparator = false
+		case char == '-':
+			builder.WriteRune('-')
+			wasSeparator = false
+		case !wasSeparator:
+			builder.WriteRune('_')
+			wasSeparator = true
+		}
+	}
+	return strings.Trim(builder.String(), "_-")
+}
+
+// inferNameFromResume guesses the candidate's name from a resume. Résumés almost
+// always lead with the person's name, so we take the first short, name-shaped
+// line of the extracted text, then fall back to the uploaded file's base name.
+func inferNameFromResume(resume store.Resume) string {
+	const maxLinesToScan = 6
+	scanned := 0
+	for _, line := range strings.Split(resume.RawText, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if looksLikePersonName(trimmed) {
+			return trimmed
+		}
+		scanned++
+		if scanned >= maxLinesToScan {
+			break
+		}
+	}
+	return nameFromFilename(resume.OriginalFilename)
+}
+
+// looksLikePersonName reports whether a line is plausibly a person's full name:
+// two to four words of letters (allowing hyphens, apostrophes, and initials),
+// with no digits or email markers that would signal a contact line instead.
+func looksLikePersonName(line string) bool {
+	if strings.ContainsAny(line, "@0123456789") {
+		return false
+	}
+	words := strings.Fields(line)
+	if len(words) < 2 || len(words) > 4 {
+		return false
+	}
+	for _, word := range words {
+		if resumeHeadingWords[strings.ToLower(word)] {
+			return false // a section heading like "SUMMARY OF QUALIFICATIONS", not a name
+		}
+		for _, char := range word {
+			if !unicode.IsLetter(char) && char != '-' && char != '\'' && char != '.' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// resumeHeadingWords are words that appear in resume section headers but never in
+// a person's name; their presence tells us a line is a heading, not the name.
+var resumeHeadingWords = map[string]bool{
+	"summary": true, "qualifications": true, "objective": true, "profile": true,
+	"experience": true, "education": true, "skills": true, "contact": true,
+	"references": true, "employment": true, "history": true, "professional": true,
+	"resume": true, "curriculum": true, "vitae": true, "of": true, "and": true, "the": true,
+}
+
+// nameFromFilename recovers a name from an uploaded resume's filename by
+// stripping the extension and common non-name words (resume, cv, cover, letter)
+// and treating separators as spaces (e.g. "Michael_Smith_Resume.pdf" → "Michael Smith").
+func nameFromFilename(filename string) string {
+	base := filename
+	if dot := strings.LastIndex(base, "."); dot > 0 {
+		base = base[:dot]
+	}
+	base = strings.Map(func(char rune) rune {
+		if char == '_' || char == '-' || char == '.' {
+			return ' '
+		}
+		return char
+	}, base)
+	kept := make([]string, 0, 4)
+	for _, word := range strings.Fields(base) {
+		switch strings.ToLower(word) {
+		case "resume", "cv", "cover", "letter":
+			continue
+		}
+		kept = append(kept, word)
+	}
+	return strings.Join(kept, " ")
 }
 
 // handleSelect records that the user wants to pursue this opening (FR-011).

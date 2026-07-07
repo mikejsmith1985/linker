@@ -22,6 +22,7 @@ type webFakeStore struct {
 	savedPrefs     store.Preferences
 	activeErr      error
 	match          store.MatchWithOpening
+	activeResume   store.Resume // when ID != 0, returned by GetActiveResume
 	doc            store.GeneratedDocument
 	savedContent   string
 	selectRecorded bool
@@ -37,6 +38,9 @@ func (f *webFakeStore) SaveResume(context.Context, store.Resume) (int64, error) 
 func (f *webFakeStore) GetActiveResume(context.Context) (store.Resume, error) {
 	if f.activeErr != nil {
 		return store.Resume{}, f.activeErr
+	}
+	if f.activeResume.ID != 0 {
+		return f.activeResume, nil
 	}
 	return store.Resume{ID: 1, OriginalFilename: "cv.pdf", Format: "pdf", IsActive: true}, nil
 }
@@ -333,6 +337,68 @@ func TestDownloadDocumentPDF(t *testing.T) {
 	}
 	if !strings.HasPrefix(rr.Body.String(), "%PDF") {
 		t.Error("body is not a PDF")
+	}
+}
+
+func TestDocumentFilenameBase(t *testing.T) {
+	cases := []struct {
+		name          string
+		candidateName string
+		jobTitle      string
+		docType       store.DocType
+		want          string
+	}{
+		{"resume with title", "Michael Smith", "Senior Software Engineer", store.TailoredResume, "Michael_Smith_Senior_Software_Engineer_Resume"},
+		{"cover letter label spaced", "Michael Smith", "AI Delivery Lead", store.CoverLetter, "Michael_Smith_AI_Delivery_Lead_Cover_Letter"},
+		{"punctuation collapses", "Mary-Jane O'Neil", "Staff Eng. (Platform)", store.TailoredResume, "Mary-Jane_O_Neil_Staff_Eng_Platform_Resume"},
+		{"missing title skips segment", "Michael Smith", "", store.TailoredResume, "Michael_Smith_Resume"},
+		{"missing candidate skips segment", "", "Data Scientist", store.CoverLetter, "Data_Scientist_Cover_Letter"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := documentFilenameBase(tc.candidateName, tc.jobTitle, tc.docType); got != tc.want {
+				t.Errorf("documentFilenameBase() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestInferNameFromResume(t *testing.T) {
+	cases := []struct {
+		name   string
+		resume store.Resume
+		want   string
+	}{
+		{"name on first line", store.Resume{ID: 1, RawText: "Michael Smith\nSoftware Engineer\nmike@example.com"}, "Michael Smith"},
+		{"skips heading to name line", store.Resume{ID: 1, RawText: "RESUME\nMichael Smith\n555-1234"}, "Michael Smith"},
+		{"falls back to filename", store.Resume{ID: 1, OriginalFilename: "Michael_Smith_Resume.pdf", RawText: "SUMMARY OF QUALIFICATIONS\n10 years building things"}, "Michael Smith"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := inferNameFromResume(tc.resume); got != tc.want {
+				t.Errorf("inferNameFromResume() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDownloadDocumentSetsReadableFilename(t *testing.T) {
+	st := &webFakeStore{
+		doc:          store.GeneratedDocument{ID: 9, Type: store.TailoredResume, ContentMarkdown: "# Resume"},
+		activeResume: store.Resume{ID: 1, RawText: "Michael Smith\nSenior Engineer"},
+		match: store.MatchWithOpening{
+			Opening: store.JobOpening{Title: "Staff Software Engineer"},
+		},
+	}
+	rr := httptest.NewRecorder()
+	newTestServer(st).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/job/5/documents/tailored_resume/download", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	want := `attachment; filename="Michael_Smith_Staff_Software_Engineer_Resume.txt"`
+	if got := rr.Header().Get("Content-Disposition"); got != want {
+		t.Errorf("Content-Disposition = %q, want %q", got, want)
 	}
 }
 
