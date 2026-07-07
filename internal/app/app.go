@@ -76,7 +76,7 @@ func Run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	}
 	orch := orchestrator.New(st, registry, scorer, docService, urlFactory, companyFactory, log)
 	chatAssistant := assistant.New(llm, st, orch)
-	server := web.NewServer(st, ingestor, orch, docService, chatAssistant, log)
+	server := web.NewServer(st, ingestor, orch, docService, chatAssistant, log).WithRescorer(orch)
 
 	httpSrv := &http.Server{
 		Addr:              cfg.HTTPAddr,

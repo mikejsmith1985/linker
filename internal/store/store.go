@@ -47,8 +47,10 @@ type Store interface {
 	UpsertOpening(ctx context.Context, o JobOpening) (int64, error)
 	FindScoredOpening(ctx context.Context, canonicalKey string) (MatchResult, error)
 	SetOpeningReviewStatus(ctx context.Context, openingID int64, status, reason string) error
+	UpdateOpeningDescription(ctx context.Context, openingID int64, description string) error
 
 	CreateMatchResult(ctx context.Context, m MatchResult) (int64, error)
+	UpdateMatchScore(ctx context.Context, matchID int64, score int, explanation string, gatePenalties map[string]int, isQualifying bool) error
 	ListQualifying(ctx context.Context, searchID int64) ([]MatchWithOpening, error)
 	ListAllQualifying(ctx context.Context) ([]MatchWithOpening, error)
 	GetMatchWithOpening(ctx context.Context, matchID int64) (MatchWithOpening, error)
@@ -56,6 +58,7 @@ type Store interface {
 	SaveDocument(ctx context.Context, d GeneratedDocument) (int64, error)
 	GetDocument(ctx context.Context, matchID int64, docType DocType) (GeneratedDocument, error)
 	UpdateDocumentContent(ctx context.Context, id int64, content string) error
+	DeleteDocumentsForMatch(ctx context.Context, matchID int64) error
 
 	UpsertSelection(ctx context.Context, matchID int64, opened bool) error
 
@@ -328,6 +331,19 @@ func (s *PG) SetOpeningReviewStatus(ctx context.Context, openingID int64, status
 	return nil
 }
 
+// UpdateOpeningDescription replaces an opening's description text. It backs the
+// "paste the real job description" flow used when an auto-fetched page (e.g. a
+// LinkedIn login wall) yielded a thin or unusable description.
+func (s *PG) UpdateOpeningDescription(ctx context.Context, openingID int64, description string) error {
+	_, err := s.db.Exec(ctx,
+		`UPDATE job_openings SET description = $2 WHERE id = $1`,
+		openingID, description)
+	if err != nil {
+		return fmt.Errorf("update opening description: %w", err)
+	}
+	return nil
+}
+
 // FindScoredOpening returns the most recent match result for the opening with
 // the given canonical key, so re-runs can reuse a prior score (FR-025).
 func (s *PG) FindScoredOpening(ctx context.Context, canonicalKey string) (MatchResult, error) {
@@ -369,6 +385,25 @@ func (s *PG) CreateMatchResult(ctx context.Context, m MatchResult) (int64, error
 		return 0, fmt.Errorf("create match result: %w", err)
 	}
 	return id, nil
+}
+
+// UpdateMatchScore overwrites a match result's score, explanation, gate
+// penalties, and visibility. It backs a manual re-score (after the user pastes a
+// better job description), keeping the row's identity and any generated documents.
+func (s *PG) UpdateMatchScore(ctx context.Context, matchID int64, score int, explanation string, gatePenalties map[string]int, isQualifying bool) error {
+	penalties, err := json.Marshal(nonNilPenalties(gatePenalties))
+	if err != nil {
+		return fmt.Errorf("marshal gate_penalties: %w", err)
+	}
+	_, err = s.db.Exec(ctx,
+		`UPDATE match_results
+		    SET score = $2, score_explanation = $3, gate_penalties = $4, is_qualifying = $5
+		  WHERE id = $1`,
+		matchID, score, explanation, string(penalties), isQualifying)
+	if err != nil {
+		return fmt.Errorf("update match score: %w", err)
+	}
+	return nil
 }
 
 // ListQualifying returns the qualifying (score>=70) matches of a search joined
@@ -537,6 +572,18 @@ func (s *PG) UpdateDocumentContent(ctx context.Context, id int64, content string
 		id, content)
 	if err != nil {
 		return fmt.Errorf("update document content: %w", err)
+	}
+	return nil
+}
+
+// DeleteDocumentsForMatch removes every generated document for a match so they
+// are regenerated on next view. Called after a re-score changes the underlying
+// job description, which would otherwise leave stale, wrongly-tailored documents.
+func (s *PG) DeleteDocumentsForMatch(ctx context.Context, matchID int64) error {
+	_, err := s.db.Exec(ctx,
+		`DELETE FROM generated_documents WHERE match_result_id = $1`, matchID)
+	if err != nil {
+		return fmt.Errorf("delete documents for match: %w", err)
 	}
 	return nil
 }

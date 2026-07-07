@@ -20,6 +20,11 @@ type fakeStore struct {
 	openingSeq    int64
 	failUpsert    string          // title whose UpsertOpening returns an error
 	seenKeys      map[string]bool // canonical keys treated as seen in a prior search
+
+	match              store.MatchWithOpening // returned by GetMatchWithOpening
+	updatedDescription string                 // captured by UpdateOpeningDescription
+	updatedScore       *store.MatchResult     // captured by UpdateMatchScore
+	deletedDocs        bool                   // set by DeleteDocumentsForMatch
 }
 
 func (f *fakeStore) RunMigrations(context.Context) error                     { return nil }
@@ -63,7 +68,15 @@ func (f *fakeStore) FindScoredOpening(_ context.Context, key string) (store.Matc
 	return store.MatchResult{}, store.ErrNotFound
 }
 func (f *fakeStore) SetOpeningReviewStatus(context.Context, int64, string, string) error { return nil }
-func (f *fakeStore) FailRunningSearches(context.Context) error                           { return nil }
+func (f *fakeStore) UpdateOpeningDescription(_ context.Context, openingID int64, description string) error {
+	f.updatedDescription = description
+	return nil
+}
+func (f *fakeStore) UpdateMatchScore(_ context.Context, _ int64, score int, explanation string, penalties map[string]int, isQualifying bool) error {
+	f.updatedScore = &store.MatchResult{Score: score, ScoreExplanation: explanation, GatePenalties: penalties, IsQualifying: isQualifying}
+	return nil
+}
+func (f *fakeStore) FailRunningSearches(context.Context) error { return nil }
 func (f *fakeStore) ListRecentSearches(context.Context, int) ([]store.SearchSummary, error) {
 	return nil, nil
 }
@@ -81,7 +94,7 @@ func (f *fakeStore) ListQualifying(context.Context, int64) ([]store.MatchWithOpe
 	return nil, nil
 }
 func (f *fakeStore) GetMatchWithOpening(context.Context, int64) (store.MatchWithOpening, error) {
-	return store.MatchWithOpening{}, nil
+	return f.match, nil
 }
 func (f *fakeStore) SaveDocument(context.Context, store.GeneratedDocument) (int64, error) {
 	return 1, nil
@@ -90,8 +103,12 @@ func (f *fakeStore) GetDocument(context.Context, int64, store.DocType) (store.Ge
 	return store.GeneratedDocument{}, store.ErrNotFound
 }
 func (f *fakeStore) UpdateDocumentContent(context.Context, int64, string) error { return nil }
-func (f *fakeStore) UpsertSelection(context.Context, int64, bool) error         { return nil }
-func (f *fakeStore) AppendChatMessage(context.Context, string, string) error    { return nil }
+func (f *fakeStore) DeleteDocumentsForMatch(_ context.Context, _ int64) error {
+	f.deletedDocs = true
+	return nil
+}
+func (f *fakeStore) UpsertSelection(context.Context, int64, bool) error      { return nil }
+func (f *fakeStore) AppendChatMessage(context.Context, string, string) error { return nil }
 func (f *fakeStore) ListChatMessages(context.Context, int) ([]store.ChatMessage, error) {
 	return nil, nil
 }
@@ -349,5 +366,92 @@ func TestStartSearchErrorsWithoutResume(t *testing.T) {
 	orch := New(st, fakeDiscoverer{}, fakeScorer{}, nil, nil, nil, nil)
 	if _, err := orch.StartSearch(context.Background()); err != ErrNoResume {
 		t.Errorf("err = %v, want ErrNoResume", err)
+	}
+}
+
+func TestRunSearchURLsShowsSubThresholdResults(t *testing.T) {
+	st := &fakeStore{
+		resume: store.Resume{ID: 1, StructuredProfile: "Skills: Go", RawText: "facts"},
+		prefs:  store.Preferences{WorkLocationPref: store.WorkRemote},
+	}
+	// A pasted URL that scores 68 (below the 70 threshold) must still be shown.
+	low := fakeDiscoverer{
+		openings: []store.JobOpening{{Title: "Pasted", CanonicalKey: "k-p"}},
+		health:   map[string]string{"pasted-url": jobsource.HealthSucceeded},
+	}
+	scorer := fakeScorer{byTitle: map[string]int{"Pasted": 68}}
+	orch := New(st, nil, scorer, nil, func([]string) Discoverer { return low }, nil, nil)
+
+	if _, err := orch.RunSearchURLs(context.Background(), []string{"https://x/1"}); err != nil {
+		t.Fatalf("RunSearchURLs: %v", err)
+	}
+	if len(st.created) != 1 {
+		t.Fatalf("created %d match results, want 1", len(st.created))
+	}
+	if st.created[0].Score != 68 {
+		t.Errorf("score = %d, want 68", st.created[0].Score)
+	}
+	if !st.created[0].IsQualifying {
+		t.Error("sub-threshold pasted result should be visible (is_qualifying=true)")
+	}
+}
+
+func TestRunSearchURLsKeepsHardExcludedTargetedRole(t *testing.T) {
+	st := &fakeStore{
+		resume: store.Resume{ID: 1, StructuredProfile: "Skills: Go", RawText: "facts"},
+		prefs:  store.Preferences{WorkLocationPref: store.WorkRemote, StrictWorkLocation: true},
+	}
+	// A hybrid role would be hard-excluded in broad discovery, but the user pasted
+	// it deliberately, so a targeted search must keep it.
+	disc := fakeDiscoverer{
+		openings: []store.JobOpening{{Title: "Hybrid Pasted", CanonicalKey: "k-hp", WorkLocationType: store.WorkHybrid}},
+		health:   map[string]string{"pasted-url": jobsource.HealthSucceeded},
+	}
+	scorer := fakeScorer{byTitle: map[string]int{"Hybrid Pasted": 80}}
+	orch := New(st, nil, scorer, nil, func([]string) Discoverer { return disc }, nil, nil)
+
+	if _, err := orch.RunSearchURLs(context.Background(), []string{"u"}); err != nil {
+		t.Fatalf("RunSearchURLs: %v", err)
+	}
+	if len(st.created) != 1 {
+		t.Fatalf("targeted hybrid role dropped; created %d, want 1", len(st.created))
+	}
+}
+
+func TestRescoreWithDescription(t *testing.T) {
+	st := &fakeStore{
+		resume: store.Resume{ID: 1, StructuredProfile: "Skills: Go", RawText: "facts"},
+		prefs:  store.Preferences{WorkLocationPref: store.WorkRemote},
+		match: store.MatchWithOpening{
+			MatchResult: store.MatchResult{ID: 7, Score: 68, IsQualifying: false},
+			Opening:     store.JobOpening{ID: 3, Title: "Real Role", CanonicalKey: "k-real"},
+		},
+	}
+	scorer := fakeScorer{byTitle: map[string]int{"Real Role": 84}}
+	orch := New(st, nil, scorer, nil, nil, nil, nil)
+
+	updated, err := orch.RescoreWithDescription(context.Background(), 7, "  full real description  ")
+	if err != nil {
+		t.Fatalf("RescoreWithDescription: %v", err)
+	}
+	if st.updatedDescription != "full real description" {
+		t.Errorf("stored description = %q, want trimmed pasted text", st.updatedDescription)
+	}
+	if st.updatedScore == nil || st.updatedScore.Score != 84 || !st.updatedScore.IsQualifying {
+		t.Errorf("updated score = %+v, want 84 and visible", st.updatedScore)
+	}
+	if !st.deletedDocs {
+		t.Error("stale documents were not invalidated after re-score")
+	}
+	if updated.Score != 84 || !updated.IsQualifying {
+		t.Errorf("returned match = %d/%v, want 84/true", updated.Score, updated.IsQualifying)
+	}
+}
+
+func TestRescoreWithDescriptionRejectsEmpty(t *testing.T) {
+	st := &fakeStore{match: store.MatchWithOpening{Opening: store.JobOpening{ID: 1}}}
+	orch := New(st, nil, fakeScorer{}, nil, nil, nil, nil)
+	if _, err := orch.RescoreWithDescription(context.Background(), 1, "   "); err == nil {
+		t.Error("expected an error for an empty description")
 	}
 }

@@ -51,6 +51,13 @@ type Chatter interface {
 	Handle(ctx context.Context, userText string) (string, error)
 }
 
+// Rescorer re-scores a match after the user supplies a better job description
+// (e.g. pasting the real posting when the fetched page was a login wall). The
+// orchestrator satisfies it; when nil, the paste-a-description feature is off.
+type Rescorer interface {
+	RescoreWithDescription(ctx context.Context, matchID int64, description string) (store.MatchWithOpening, error)
+}
+
 // Server holds dependencies for the HTTP handlers.
 type Server struct {
 	store    store.Store
@@ -58,6 +65,7 @@ type Server struct {
 	actions  Actions
 	docs     DocumentService
 	chat     Chatter
+	rescorer Rescorer
 	log      *slog.Logger
 }
 
@@ -70,6 +78,14 @@ func NewServer(st store.Store, ingestor ResumeIngestor, actions Actions, docs Do
 		log = slog.Default()
 	}
 	return &Server{store: st, ingestor: ingestor, actions: actions, docs: docs, chat: chat, log: log}
+}
+
+// WithRescorer enables the paste-a-description re-score feature. It is a setter
+// (rather than a constructor argument) so existing NewServer call sites are
+// unaffected; a Server without one simply omits the re-score action.
+func (s *Server) WithRescorer(rescorer Rescorer) *Server {
+	s.rescorer = rescorer
+	return s
 }
 
 // Routes returns the configured HTTP handler.
@@ -90,6 +106,7 @@ func (s *Server) Routes() http.Handler {
 	r.Post("/assistant/message", s.handleAssistantMessage)
 	r.Get("/job/{id}", s.handleJob)
 	r.Post("/job/{id}/review", s.handleReview)
+	r.Post("/job/{id}/description", s.handleRescoreWithDescription)
 	r.Post("/job/{id}/documents/{docType}", s.handleSaveDocument)
 	r.Get("/job/{id}/documents/{docType}/download", s.handleDownloadDocument)
 	r.Post("/job/{id}/select", s.handleSelect)
@@ -416,18 +433,75 @@ func (s *Server) handleJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	facts := s.resumeFacts(r.Context())
-	tailored, err := s.docs.EnsureDocument(r.Context(), id, store.TailoredResume, match.Opening, facts)
-	if err != nil {
-		s.fail(w, "generate tailored resume", err)
+	// When the posting text looks like a login wall, the score is unreliable and
+	// documents would be tailored to navigation chrome — prompt the user to paste
+	// the real description first instead of burning LLM calls on garbage.
+	needsDescription := s.rescorer != nil && looksLikeAuthwall(match.Opening.Description)
+	var tailored, cover store.GeneratedDocument
+	if !needsDescription {
+		facts := s.resumeFacts(r.Context())
+		tailored, err = s.docs.EnsureDocument(r.Context(), id, store.TailoredResume, match.Opening, facts)
+		if err != nil {
+			s.fail(w, "generate tailored resume", err)
+			return
+		}
+		cover, err = s.docs.EnsureDocument(r.Context(), id, store.CoverLetter, match.Opening, facts)
+		if err != nil {
+			s.fail(w, "generate cover letter", err)
+			return
+		}
+	}
+	s.render(w, r, Job(match, tailored, cover, needsDescription, s.rescorer != nil))
+}
+
+// handleRescoreWithDescription replaces a match's job description with pasted
+// text and re-scores it. This is the fix for postings whose fetched page is a
+// login wall (LinkedIn) rather than the real description, which otherwise scores
+// the candidate against navigation chrome instead of the actual role.
+func (s *Server) handleRescoreWithDescription(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.idParam(w, r)
+	if !ok {
 		return
 	}
-	cover, err := s.docs.EnsureDocument(r.Context(), id, store.CoverLetter, match.Opening, facts)
-	if err != nil {
-		s.fail(w, "generate cover letter", err)
+	if s.rescorer == nil {
+		http.Error(w, "re-scoring is not available", http.StatusNotImplemented)
 		return
 	}
-	s.render(w, r, Job(match, tailored, cover))
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "could not read form", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(r.FormValue("description")) == "" {
+		http.Error(w, "paste the job description text to re-score", http.StatusBadRequest)
+		return
+	}
+	if _, err := s.rescorer.RescoreWithDescription(r.Context(), id, r.FormValue("description")); err != nil {
+		s.fail(w, "re-score with description", err)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/job/%d", id), http.StatusSeeOther)
+}
+
+// authwallMarkers are phrases that signal a fetched page was a login/sign-up
+// wall (common on LinkedIn) rather than the actual job description.
+var authwallMarkers = []string{"sign in", "join now", "join linkedin", "authwall", "create a job alert", "see who", "new to linkedin"}
+
+// looksLikeAuthwall reports whether a job description reads like a login wall or
+// is too thin to score against — the trigger for prompting the user to paste the
+// real posting text. Two or more wall markers, or a very short description, count.
+func looksLikeAuthwall(description string) bool {
+	trimmed := strings.TrimSpace(description)
+	if len(trimmed) < 400 {
+		return true
+	}
+	lower := strings.ToLower(trimmed)
+	hits := 0
+	for _, marker := range authwallMarkers {
+		if strings.Contains(lower, marker) {
+			hits++
+		}
+	}
+	return hits >= 2
 }
 
 // handleSaveDocument stores a user's edit to a generated document (FR-010).

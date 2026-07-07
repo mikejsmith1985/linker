@@ -75,11 +75,20 @@ var ErrURLSearchUnavailable = errors.New("paste-a-URL search is not available")
 // ErrCompanySearchUnavailable is returned when company search is not configured.
 var ErrCompanySearchUnavailable = errors.New("company search is not available")
 
+// A "targeted" search is one where the user hand-picked the exact postings
+// (paste-a-URL or a named company), as opposed to broad discovery. Targeted
+// results are always shown with their score regardless of the qualifying
+// threshold, because the user explicitly asked "how do I fit THIS job?".
+const (
+	broadDiscovery = false
+	targetedSearch = true
+)
+
 // StartSearch kicks off a search over the configured sources in the background
 // and returns the new search id immediately, so the caller (a web request) is
 // never blocked and the search survives the request/tab closing.
 func (o *Orchestrator) StartSearch(ctx context.Context) (int64, error) {
-	return o.startWith(ctx, o.disc)
+	return o.startWith(ctx, o.disc, broadDiscovery)
 }
 
 // StartSearchURLs starts a background search over user-pasted posting URLs.
@@ -87,7 +96,7 @@ func (o *Orchestrator) StartSearchURLs(ctx context.Context, urls []string) (int6
 	if o.urlDisc == nil {
 		return 0, ErrURLSearchUnavailable
 	}
-	return o.startWith(ctx, o.urlDisc(urls))
+	return o.startWith(ctx, o.urlDisc(urls), targetedSearch)
 }
 
 // StartSearchCompanies starts a background search over named companies' ATS feeds.
@@ -95,13 +104,13 @@ func (o *Orchestrator) StartSearchCompanies(ctx context.Context, companies []str
 	if o.companyDisc == nil {
 		return 0, ErrCompanySearchUnavailable
 	}
-	return o.startWith(ctx, o.companyDisc(companies))
+	return o.startWith(ctx, o.companyDisc(companies), targetedSearch)
 }
 
 // RunSearch runs a search synchronously (used in tests and by any caller that
 // wants to block until completion).
 func (o *Orchestrator) RunSearch(ctx context.Context) (int64, error) {
-	return o.runWith(ctx, o.disc)
+	return o.runWith(ctx, o.disc, broadDiscovery)
 }
 
 // RunSearchURLs / RunSearchCompanies are synchronous variants.
@@ -109,14 +118,67 @@ func (o *Orchestrator) RunSearchURLs(ctx context.Context, urls []string) (int64,
 	if o.urlDisc == nil {
 		return 0, ErrURLSearchUnavailable
 	}
-	return o.runWith(ctx, o.urlDisc(urls))
+	return o.runWith(ctx, o.urlDisc(urls), targetedSearch)
 }
 
 func (o *Orchestrator) RunSearchCompanies(ctx context.Context, companies []string) (int64, error) {
 	if o.companyDisc == nil {
 		return 0, ErrCompanySearchUnavailable
 	}
-	return o.runWith(ctx, o.companyDisc(companies))
+	return o.runWith(ctx, o.companyDisc(companies), targetedSearch)
+}
+
+// RescoreWithDescription replaces a match's job description with text the user
+// pasted (used when the auto-fetched page was a login wall or otherwise thin),
+// re-runs the scorer against the active resume and preferences, persists the new
+// score, and returns the refreshed match. The match is kept visible afterward so
+// a job the user is actively working never disappears on a re-score.
+func (o *Orchestrator) RescoreWithDescription(ctx context.Context, matchID int64, description string) (store.MatchWithOpening, error) {
+	description = strings.TrimSpace(description)
+	if description == "" {
+		return store.MatchWithOpening{}, fmt.Errorf("empty job description")
+	}
+	match, err := o.store.GetMatchWithOpening(ctx, matchID)
+	if err != nil {
+		return store.MatchWithOpening{}, fmt.Errorf("load match: %w", err)
+	}
+	resume, err := o.store.GetActiveResume(ctx)
+	if errors.Is(err, store.ErrNotFound) {
+		return store.MatchWithOpening{}, ErrNoResume
+	}
+	if err != nil {
+		return store.MatchWithOpening{}, fmt.Errorf("load resume: %w", err)
+	}
+	prefs, err := o.store.GetPreferences(ctx)
+	if err != nil {
+		return store.MatchWithOpening{}, fmt.Errorf("load preferences: %w", err)
+	}
+
+	if err := o.store.UpdateOpeningDescription(ctx, match.Opening.ID, description); err != nil {
+		return store.MatchWithOpening{}, err
+	}
+	match.Opening.Description = description
+
+	result, err := o.score.Score(ctx, resume.StructuredProfile, match.Opening, prefs)
+	if err != nil {
+		return store.MatchWithOpening{}, fmt.Errorf("re-score: %w", err)
+	}
+	// Keep the match visible after a manual re-score regardless of the new score —
+	// the user pasted this description precisely because they are pursuing this job.
+	if err := o.store.UpdateMatchScore(ctx, matchID, result.Value, result.Explanation, result.GatePenalties, true); err != nil {
+		return store.MatchWithOpening{}, err
+	}
+	// Any documents were tailored to the old (thin) description — drop them so the
+	// next view regenerates them from the corrected posting.
+	if err := o.store.DeleteDocumentsForMatch(ctx, matchID); err != nil {
+		return store.MatchWithOpening{}, err
+	}
+
+	match.Score = result.Value
+	match.ScoreExplanation = result.Explanation
+	match.GatePenalties = result.GatePenalties
+	match.IsQualifying = true
+	return match, nil
 }
 
 // prepare loads the active resume and preferences and opens a new search row.
@@ -140,32 +202,32 @@ func (o *Orchestrator) prepare(ctx context.Context) (store.Resume, store.Prefere
 }
 
 // runWith prepares and executes a search synchronously.
-func (o *Orchestrator) runWith(ctx context.Context, disc Discoverer) (int64, error) {
+func (o *Orchestrator) runWith(ctx context.Context, disc Discoverer, targeted bool) (int64, error) {
 	resume, prefs, searchID, err := o.prepare(ctx)
 	if err != nil {
 		return 0, err
 	}
-	o.execute(ctx, searchID, resume, prefs, disc)
+	o.execute(ctx, searchID, resume, prefs, disc, targeted)
 	return searchID, nil
 }
 
 // startWith prepares a search, then runs it on a detached context in the
 // background so the caller returns immediately.
-func (o *Orchestrator) startWith(ctx context.Context, disc Discoverer) (int64, error) {
+func (o *Orchestrator) startWith(ctx context.Context, disc Discoverer, targeted bool) (int64, error) {
 	resume, prefs, searchID, err := o.prepare(ctx)
 	if err != nil {
 		return 0, err
 	}
-	go o.execute(context.Background(), searchID, resume, prefs, disc)
+	go o.execute(context.Background(), searchID, resume, prefs, disc, targeted)
 	return searchID, nil
 }
 
 // execute runs the discover -> score -> persist pipeline and marks the search
 // completed or failed. It is designed to run in the background.
-func (o *Orchestrator) execute(ctx context.Context, searchID int64, resume store.Resume, prefs store.Preferences, disc Discoverer) {
+func (o *Orchestrator) execute(ctx context.Context, searchID int64, resume store.Resume, prefs store.Preferences, disc Discoverer, targeted bool) {
 	openings, health := disc.Discover(ctx, buildQuery(resume, prefs))
 
-	scoredList, err := o.scoreAll(ctx, openings, resume, prefs)
+	scoredList, err := o.scoreAll(ctx, openings, resume, prefs, targeted)
 	if err != nil {
 		o.log.Error("search scoring failed", "search_id", searchID, "err", err)
 		_ = o.store.FinishSearch(ctx, searchID, store.SearchFailed, health)
@@ -175,7 +237,7 @@ func (o *Orchestrator) execute(ctx context.Context, searchID int64, resume store
 	sort.SliceStable(scoredList, func(i, j int) bool {
 		return scoredList[i].result.Value > scoredList[j].result.Value
 	})
-	if err := o.persistResults(ctx, searchID, scoredList, resume); err != nil {
+	if err := o.persistResults(ctx, searchID, scoredList, resume, targeted); err != nil {
 		o.log.Error("search persist failed", "search_id", searchID, "err", err)
 		_ = o.store.FinishSearch(ctx, searchID, store.SearchFailed, health)
 		return
@@ -188,12 +250,13 @@ func (o *Orchestrator) execute(ctx context.Context, searchID int64, resume store
 
 // scoreAll persists each opening and computes its score, reusing a prior score
 // for an identical posting (same canonical key) rather than re-scoring (FR-025).
-func (o *Orchestrator) scoreAll(ctx context.Context, openings []store.JobOpening, resume store.Resume, prefs store.Preferences) ([]scored, error) {
+func (o *Orchestrator) scoreAll(ctx context.Context, openings []store.JobOpening, resume store.Resume, prefs store.Preferences, targeted bool) ([]scored, error) {
 	out := make([]scored, 0, len(openings))
 	for _, opening := range openings {
 		// Strict work-location: drop conflicting roles outright (no scoring cost,
-		// never shown) rather than penalizing them.
-		if scoring.HardExcluded(opening, prefs) {
+		// never shown) rather than penalizing them. A targeted (user-chosen) job is
+		// never dropped — the user asked about this exact posting.
+		if !targeted && scoring.HardExcluded(opening, prefs) {
 			continue
 		}
 		// New-roles-only: skip any posting already seen in a previous search.
@@ -243,25 +306,28 @@ func (o *Orchestrator) reusePriorScore(ctx context.Context, opening store.JobOpe
 }
 
 // persistResults writes a match result per opening and eagerly generates
-// documents for the top-N qualifying openings.
-func (o *Orchestrator) persistResults(ctx context.Context, searchID int64, scoredList []scored, resume store.Resume) error {
-	qualifyingRank := 0
+// documents for the top-N shown openings. For a targeted search every result is
+// marked visible regardless of score, so a job the user hand-picked is never
+// silently hidden below the qualifying threshold.
+func (o *Orchestrator) persistResults(ctx context.Context, searchID int64, scoredList []scored, resume store.Resume, targeted bool) error {
+	shownRank := 0
 	for i, sc := range scoredList {
+		isShown := sc.result.IsQualifying || targeted
 		matchID, err := o.store.CreateMatchResult(ctx, store.MatchResult{
 			SearchID:         searchID,
 			JobOpeningID:     sc.openingID,
 			Score:            sc.result.Value,
 			ScoreExplanation: sc.result.Explanation,
 			GatePenalties:    sc.result.GatePenalties,
-			IsQualifying:     sc.result.IsQualifying,
+			IsQualifying:     isShown,
 			Rank:             i + 1,
 		})
 		if err != nil {
 			return fmt.Errorf("persist match result: %w", err)
 		}
-		if sc.result.IsQualifying {
-			qualifyingRank++
-			o.maybeEagerGenerate(ctx, qualifyingRank, matchID, sc.opening, resume.RawText)
+		if isShown {
+			shownRank++
+			o.maybeEagerGenerate(ctx, shownRank, matchID, sc.opening, resume.RawText)
 		}
 	}
 	return nil
