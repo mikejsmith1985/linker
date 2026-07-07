@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Downloaded documents now have self-describing filenames** of the form
+  `Name_Job-Title_Resume.pdf` / `Name_Job-Title_Cover-Letter.txt` (e.g.
+  `Michael_Smith_Staff_Software_Engineer_Resume.pdf`) instead of
+  `tailored_resume-9.txt`, so a saved file is immediately identifiable without
+  renaming. The candidate name is inferred from the active resume (its leading
+  name line, falling back to the uploaded file's base name).
+
 ### Added
 - Passed roles are now **hidden from the Matches page by default**, with a
   "Show N passed" toggle to bring them back — the list stays focused on live
