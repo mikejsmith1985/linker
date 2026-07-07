@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **PDF downloads now render Markdown as real formatting** instead of dumping raw
+  Markdown. Headings, **bold**, and bullet lists become proper typography, a
+  Windows-1252 translator fixes the `Â·` / `â€"` mojibake on middots and em
+  dashes, and symbols outside that encoding (arrows, ellipsis) fold to ASCII
+  rather than vanishing. Previously the PDF showed literal `#`, `**`, and garbled
+  punctuation.
+- Download filenames no longer leak a resume file's dedup suffix (e.g. the `(1)`
+  in `Michael_Smith_Resume (1).docx`), which previously surfaced as a stray
+  `_1` in the saved document name.
+
 ### Changed
 - **Downloaded documents now have self-describing filenames** of the form
   `Name_Job-Title_Resume.pdf` / `Name_Job-Title_Cover-Letter.txt` (e.g.
